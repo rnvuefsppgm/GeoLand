@@ -12,9 +12,14 @@ O executável já traz o Python, o R 4.5.2 e os pacotes `landscapemetrics` e
 
 ## Download e instalação
 
-1. Abra a página **Releases** deste repositório e baixe `GeoLand_V1_win64.zip`.
-2. Extraia o `.zip` em qualquer pasta (ex.: `C:\GeoLand_V1`).
-3. Abra a pasta `GeoLand_V1` e dê duplo clique em **`GeoLand_V1.exe`**.
+1. Nesta página do repositório, clique em **Code → Download ZIP** (cerca de
+   310 MB).
+2. Extraia o `.zip` em qualquer pasta.
+3. Abra `dist_com_R\GeoLand_V1` e dê duplo clique em **`GeoLand_V1.exe`**.
+
+A pasta `GeoLand_V1` é independente: pode ser copiada sozinha para outro
+local ou outro computador. Quem preferir `git clone` precisa do Git LFS
+instalado, porque um dos arquivos do R passa de 100 MB.
 
 Requisitos: Windows 10 ou 11, 64 bits. Mantenha o `.exe` junto da pasta
 `_internal` — copiar só o `.exe` não funciona. Na primeira abertura o Windows
@@ -116,10 +121,11 @@ GeoLand.spec                                     Especificação do PyInstaller
 requirements.txt                                 Dependências Python
 montar_R_portatil.ps1                            Monta a pasta R_portable (R + pacotes)
 build_windows.bat                                Cria o venv e gera o executável
+dist_com_R/GeoLand_V1/                           Executável compilado, pronto para uso
 ```
 
-O executável completo não fica no repositório (são cerca de 760 MB); ele é
-publicado como `.zip` na página Releases.
+A pasta `dist_com_R/GeoLand_V1` contém o `GeoLand_V1.exe` e a subpasta
+`_internal` (Python, bibliotecas e o R portátil), cerca de 760 MB.
 
 ## Executar pelo código-fonte
 

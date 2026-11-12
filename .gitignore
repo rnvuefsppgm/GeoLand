@@ -4,7 +4,11 @@ __pycache__/
 build/
 dist/
 build_com_R/
-dist_com_R/
 R_portable/
 *.log
 *.zip
+
+# De dist_com_R so entra o executavel final, com todos os seus arquivos.
+dist_com_R/*
+!dist_com_R/GeoLand_V1/
+!dist_com_R/GeoLand_V1/**

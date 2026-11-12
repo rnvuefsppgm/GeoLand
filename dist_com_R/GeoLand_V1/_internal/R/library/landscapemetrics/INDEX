@@ -1,0 +1,165 @@
+augusta_nlcd            Augusta NLCD 2011
+calculate_correlation   Calculate correlation
+calculate_lsm           calculate_lsm
+check_landscape         Check input landscape
+extract_lsm             extract_lsm
+get_adjacencies         get_adjacencies
+get_boundaries          get_boundaries
+get_centroids           get_centroids
+get_circumscribingcircle
+                        get_circumscribingcircle
+get_nearestneighbour    get_nearestneighbour
+get_patches             get_patches
+get_unique_values       get_unique_values
+landscape               Example map (random cluster neutral landscape
+                        model).
+landscape_as_list       Landscape as list
+list_lsm                List landscape metrics
+lsm_abbreviations_names
+                        Tibble of abbreviations coming from FRAGSTATS
+lsm_c_ai                AI (class level)
+lsm_c_area_cv           AREA_CV (class level)
+lsm_c_area_mn           AREA_MN (class level)
+lsm_c_area_sd           AREA_SD (class level)
+lsm_c_ca                CA (class level)
+lsm_c_cai_cv            CAI_CV (class level)
+lsm_c_cai_mn            CAI_MN (class level)
+lsm_c_cai_sd            CAI_SD (class level)
+lsm_c_circle_cv         CIRCLE_CV (Class level)
+lsm_c_circle_mn         CIRCLE_MN (Class level)
+lsm_c_circle_sd         CIRCLE_SD (Class level)
+lsm_c_clumpy            CLUMPY (class level)
+lsm_c_cohesion          COHESION (class level)
+lsm_c_contig_cv         CONTIG_CV (class level)
+lsm_c_contig_mn         CONTIG_MN (class level)
+lsm_c_contig_sd         CONTIG_SD (class level)
+lsm_c_core_cv           CORE_CV (class level)
+lsm_c_core_mn           CORE_MN (class level)
+lsm_c_core_sd           CORE_SD (class level)
+lsm_c_cpland            CPLAND (class level)
+lsm_c_dcad              DCAD (class level)
+lsm_c_dcore_cv          DCORE_CV (class level)
+lsm_c_dcore_mn          DCORE_MN (class level)
+lsm_c_dcore_sd          DCORE_SD (class level)
+lsm_c_division          DIVISION (class level)
+lsm_c_ed                ED (class level)
+lsm_c_enn_cv            ENN_CV (class level)
+lsm_c_enn_mn            ENN_MN (class level)
+lsm_c_enn_sd            ENN_SD (class level)
+lsm_c_frac_cv           FRAC_CV (class level)
+lsm_c_frac_mn           FRAC_MN (class level)
+lsm_c_frac_sd           FRAC_SD (class level)
+lsm_c_gyrate_cv         GYRATE_CV (class level)
+lsm_c_gyrate_mn         GYRATE_MN (class level)
+lsm_c_gyrate_sd         GYRATE_SD (class level)
+lsm_c_iji               Interspersion and Juxtaposition index (class
+                        level)
+lsm_c_lpi               LPI (class level)
+lsm_c_lsi               LSI (class level)
+lsm_c_mesh              MESH (class level)
+lsm_c_ndca              NDCA (class level)
+lsm_c_nlsi              nLSI (class level)
+lsm_c_np                NP (class level)
+lsm_c_pafrac            PAFRAC (class level)
+lsm_c_para_cv           PARA_CV (class level)
+lsm_c_para_mn           PARA_MN (class level)
+lsm_c_para_sd           PARA_SD (class level)
+lsm_c_pd                PD (class level)
+lsm_c_pladj             PLADJ (class level)
+lsm_c_pland             PLAND (class level)
+lsm_c_shape_cv          SHAPE_CV (class level)
+lsm_c_shape_mn          SHAPE_MN (class level)
+lsm_c_shape_sd          SHAPE_SD (class level)
+lsm_c_split             SPLIT (class level)
+lsm_c_tca               TCA (class level)
+lsm_c_te                TE (class level)
+lsm_l_ai                AI (landscape level)
+lsm_l_area_cv           AREA_CV (landscape level)
+lsm_l_area_mn           AREA_MN (landscape level)
+lsm_l_area_sd           AREA_SD (landscape level)
+lsm_l_cai_cv            CAI_CV (landscape level)
+lsm_l_cai_mn            CAI_MN (landscape level)
+lsm_l_cai_sd            CAI_SD (landscape level)
+lsm_l_circle_cv         CIRCLE_CV (landscape level)
+lsm_l_circle_mn         CIRCLE_MN (landscape level)
+lsm_l_circle_sd         CIRCLE_SD (landscape level)
+lsm_l_cohesion          COHESION (landscape level)
+lsm_l_condent           Conditional entropy (landscape level)
+lsm_l_contag            CONTAG (landscape level)
+lsm_l_contig_cv         CONTIG_CV (landscape level)
+lsm_l_contig_mn         CONTIG_MN (landscape level)
+lsm_l_contig_sd         CONTIG_SD (landscape level)
+lsm_l_core_cv           CORE_CV (landscape level)
+lsm_l_core_mn           CORE_MN (landscape level)
+lsm_l_core_sd           CORE_SD (landscape level)
+lsm_l_dcad              DCAD (landscape level)
+lsm_l_dcore_cv          DCORE_CV (landscape level)
+lsm_l_dcore_mn          DCORE_MN (landscape level)
+lsm_l_dcore_sd          DCORE_SD (landscape level)
+lsm_l_division          DIVISION (landscape level)
+lsm_l_ed                ED (landscape level)
+lsm_l_enn_cv            ENN_CV (landscape level)
+lsm_l_enn_mn            ENN_MN (landscape level)
+lsm_l_enn_sd            ENN_SD (landscape level)
+lsm_l_ent               ENT (landscape level)
+lsm_l_frac_cv           FRAC_CV (landscape level)
+lsm_l_frac_mn           FRAC_MN (landscape level)
+lsm_l_frac_sd           FRAC_SD (landscape level)
+lsm_l_gyrate_cv         GYRATE_CV (landscape level)
+lsm_l_gyrate_mn         GYRATE_MN (landscape level)
+lsm_l_gyrate_sd         GYRATE_SD (landscape level)
+lsm_l_iji               Interspersion and Juxtaposition index
+                        (landscape level)
+lsm_l_joinent           JOINENT (landscape level)
+lsm_l_lpi               LPI (landscape level)
+lsm_l_lsi               LSI (landscape level)
+lsm_l_mesh              MESH (landscape level)
+lsm_l_msidi             MSIDI (landscape level)
+lsm_l_msiei             MSIEI (landscape level)
+lsm_l_mutinf            MUTINF (landscape level)
+lsm_l_ndca              NDCA (landscape level)
+lsm_l_np                NP (landscape level)
+lsm_l_pafrac            PAFRAC (landscape level)
+lsm_l_para_cv           PARA_CV (landscape level)
+lsm_l_para_mn           PARA_MN (landscape level)
+lsm_l_para_sd           PARA_SD (landscape level)
+lsm_l_pd                PD (landscape level)
+lsm_l_pladj             PLADJ (landscape level)
+lsm_l_pr                PR (landscape level)
+lsm_l_prd               PRD (landscape level)
+lsm_l_relmutinf         RELMUTINF (landscape level)
+lsm_l_rpr               RPD (landscape level)
+lsm_l_shape_cv          SHAPE_CV (landscape level)
+lsm_l_shape_mn          SHAPE_MN (landscape level)
+lsm_l_shape_sd          SHAPE_SD (landscape level)
+lsm_l_shdi              SHDI (landscape level)
+lsm_l_shei              SHEI (landscape level)
+lsm_l_sidi              SIDI (landscape level)
+lsm_l_siei              SIEI (landscape level)
+lsm_l_split             SPLIT (landscape level)
+lsm_l_ta                TA (landscape level)
+lsm_l_tca               TCA (landscape level)
+lsm_l_te                TE (landscape level)
+lsm_p_area              AREA (patch level)
+lsm_p_cai               CAI (patch level)
+lsm_p_circle            CIRCLE (patch level)
+lsm_p_contig            CONTIG (patch level)
+lsm_p_core              CORE (patch level)
+lsm_p_enn               ENN (patch level)
+lsm_p_frac              FRAC (patch level)
+lsm_p_gyrate            GYRATE (patch level)
+lsm_p_ncore             NCORE (patch level)
+lsm_p_para              PARA (patch level)
+lsm_p_perim             PERIM (patch level)
+lsm_p_shape             SHAPE (patch level)
+options_landscapemetrics
+                        options_landscapemetrics
+podlasie_ccilc          Podlasie ESA CCI LC
+sample_lsm              sample_lsm
+scale_sample            scale_sample
+show_cores              Show core area
+show_correlation        Show correlation
+show_lsm                Show landscape metrics
+show_patches            Show patches
+spatialize_lsm          spatialize_lsm
+window_lsm              window_lsm
