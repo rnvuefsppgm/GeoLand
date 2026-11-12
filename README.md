@@ -158,6 +158,7 @@ roda o PyInstaller. O resultado fica em `dist\GeoLand_V1\GeoLand_V1.exe`.
 | "Failed to load Python DLL" ao abrir | O `.exe` foi separado da pasta `_internal`. Use a pasta `GeoLand_V1` inteira. |
 | Antivírus ou SmartScreen bloqueia | O executável não é assinado; libere a execução. |
 | Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. |
+| Motor R falha ao carregar o pacote `terra` depois do Download ZIP | O `terra.dll` (arquivo Git LFS, 111 MB) veio incompleto. Baixe-o [neste link](https://github.com/rnvuefsppgm/GeoLand/raw/main/dist_com_R/GeoLand_V1/_internal/R/library/terra/libs/x64/terra.dll) e substitua o arquivo em `GeoLand_V1\_internal\R\library\terra\libs\x64`. |
 | Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
 | Demora para abrir | Normal na primeira execução (o antivírus examina os arquivos). |
 
