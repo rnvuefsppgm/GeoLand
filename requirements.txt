@@ -1,0 +1,55 @@
+# requirements.txt - AppGrade (Grade, Buffers, Recorte, Metricas, Reprojecao,
+# Fundido e Consolidar)
+# Compativel com Python 3.11 (Windows 10/11, 64 bits).
+#
+# Instalacao:
+#   python -m venv venv
+#   venv\Scripts\activate
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# Observacao sobre rasterio/pyogrio/GDAL no Windows: as rodas (wheels)
+# oficiais do PyPI para rasterio e pyogrio ja incluem os binarios GDAL
+# necessarios para Windows 64 bits - NAO e necessario instalar o GDAL
+# separadamente nem usar Conda.
+#
+# Observacao sobre o motor R (rpy2 + landscapemetrics), usado apenas na
+# Aba 4 (Metricas): esta e a UNICA dependencia que precisa de um programa
+# externo (o R) instalado separadamente no Windows. Sem R instalado, o
+# aplicativo funciona normalmente com o motor PyLandStats; o motor R fica
+# indisponivel e exibe um aviso claro. Veja o README (secao "Motor R -
+# landscapemetrics") para o passo a passo de instalacao do R e dos pacotes
+# terra/landscapemetrics.
+
+numpy>=1.26,<2.1
+pandas>=2.1,<2.3
+scipy>=1.11,<1.14
+
+# Geoespacial (vetor)
+geopandas>=0.14,<1.1
+pyogrio>=0.7,<0.10
+shapely>=2.0,<2.1
+pyproj>=3.6,<3.7
+
+# Geoespacial (raster)
+rasterio>=1.3.9,<1.4
+
+# Metricas de paisagem - motor PyLandStats
+pylandstats>=3.0,<3.1
+scikit-image>=0.22,<0.25
+matplotlib>=3.8,<3.10
+
+# Metricas de paisagem - motor R (landscapemetrics via rpy2) - OPCIONAL.
+# Requer R 4.x instalado separadamente no Windows (nao e instalado pelo
+# pip). Ver README para instrucoes. Se a instalacao de rpy2 falhar ou o
+# usuario nao quiser usar o motor R, comente a linha abaixo: o restante
+# do aplicativo continua funcionando normalmente.
+rpy2>=3.5,<3.6
+
+# Consolidacao de tabelas (CSV/Parquet)
+duckdb>=0.10,<1.2
+pyarrow>=14.0,<18.0
+
+# Empacotamento para Windows (.exe)
+pyinstaller>=6.3,<7.0
+pyinstaller-hooks-contrib>=2024.6

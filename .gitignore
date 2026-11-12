@@ -1,0 +1,10 @@
+venv/
+.venv/
+__pycache__/
+build/
+dist/
+build_com_R/
+dist_com_R/
+R_portable/
+*.log
+*.zip
