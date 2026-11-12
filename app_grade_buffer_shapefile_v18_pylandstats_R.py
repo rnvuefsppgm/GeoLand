@@ -1165,7 +1165,164 @@ def listar_rasters_pasta(pasta: str, recursivo: bool = False) -> List[Path]:
             arquivos.extend(pasta.glob(padrao))
     # Remove duplicados e ordena.
     arquivos = sorted(set(arquivos), key=lambda p: str(p).lower())
+    # Ignora a subpasta em que a aba 4 grava os rasters reprojetados para metros
+    # (quando ela fica dentro da pasta escolhida), para não ler o mesmo raster duas vezes.
+    arquivos = [p for p in arquivos if PASTA_REPROJ_METRICAS not in p.relative_to(pasta).parts[:-1]]
     return arquivos
+
+
+# Subpasta (dentro da pasta de saída dos CSVs) onde a aba 4 grava os rasters
+# reprojetados para metros antes do cálculo das métricas.
+PASTA_REPROJ_METRICAS = "rasters_reprojetados_metros"
+
+
+def _info_projecao_raster(caminho: str):
+    """Retorna (situacao, descricao) do CRS de um raster.
+
+    situacao: "metros" (projetado em metros), "nao_metros" (graus ou outra
+    unidade), "sem_crs" (sem CRS definido) ou "erro" (não foi possível abrir).
+    """
+    try:
+        with rasterio.open(caminho) as src:
+            crs = src.crs
+            if crs is None:
+                return "sem_crs", "sem CRS definido"
+            try:
+                desc = crs.to_string()
+            except Exception:
+                desc = str(crs)
+            if len(desc) > 60:
+                desc = desc[:57] + "..."
+            if _crs_e_metrico(crs):
+                return "metros", desc
+            try:
+                unidade = "graus" if crs.is_geographic else (crs.linear_units or "desconhecida")
+            except Exception:
+                unidade = "desconhecida"
+            return "nao_metros", f"{desc}, unidade: {unidade}"
+    except Exception as exc:
+        return "erro", str(exc)
+
+
+def verificar_projecao_rasters(rasters, progress_callback=None, stop_event=None) -> Dict[str, list]:
+    """Verifica, raster a raster, se o CRS é projetado em metros.
+
+    Retorna um dicionário com as chaves "metros", "nao_metros", "sem_crs" e
+    "erro"; cada valor é uma lista de (caminho, descrição do CRS ou do erro).
+    """
+    caminhos = [str(r) for r in rasters]
+    resultado: Dict[str, list] = {"metros": [], "nao_metros": [], "sem_crs": [], "erro": []}
+    total = len(caminhos)
+    executor = ThreadPoolExecutor(max_workers=8)
+    try:
+        for i, (caminho, (situacao, desc)) in enumerate(
+                zip(caminhos, executor.map(_info_projecao_raster, caminhos)), start=1):
+            checar_parada(stop_event)
+            resultado[situacao].append((caminho, desc))
+            if progress_callback and (i % 25 == 0 or i == total):
+                progress_callback(i, max(1, total), f"Projeção verificada: {i}/{total}")
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    return resultado
+
+
+def registrar_verificacao_projecao(resultado: Dict[str, list], pasta_base: str, log) -> str:
+    """Escreve no log o resultado de verificar_projecao_rasters (um aviso por
+    raster fora de metros) e devolve o resumo em uma linha."""
+    def rel(caminho: str) -> str:
+        try:
+            return os.path.relpath(caminho, pasta_base)
+        except ValueError:
+            return caminho
+
+    for chave, rotulo in (("nao_metros", "NÃO está em metros"), ("sem_crs", "SEM CRS definido"),
+                          ("erro", "ERRO ao abrir")):
+        linhas = [f"{rotulo}: {rel(c)} ({d})" for c, d in resultado[chave]]
+        for i in range(0, len(linhas), 200):  # em blocos, para não travar a janela com milhares de linhas
+            log("\n".join(linhas[i:i + 200]))
+    total = sum(len(v) for v in resultado.values())
+    resumo = (f"Rasters verificados: {total} | em metros: {len(resultado['metros'])} | "
+              f"NÃO em metros: {len(resultado['nao_metros'])} | sem CRS: {len(resultado['sem_crs'])} | "
+              f"erros de leitura: {len(resultado['erro'])}")
+    log(resumo)
+    return resumo
+
+
+def preparar_rasters_em_metros(
+    pasta_rasters: str,
+    pasta_saida: str,
+    recursivo: bool = True,
+    max_workers: Optional[int] = None,
+    log_callback=None,
+    load_callback=None,
+    progress_callback=None,
+    stop_event: Optional[threading.Event] = None,
+) -> List[str]:
+    """
+    Garante que os rasters usados nas métricas estejam em metros.
+
+    Verifica o CRS de cada raster da pasta; os que não estiverem em metros são
+    reprojetados (vizinho mais próximo) para o SIRGAS 2000 / UTM da zona do seu
+    centróide e gravados em <pasta_saida>/rasters_reprojetados_metros, com o
+    mesmo nome e a mesma estrutura de subpastas. Devolve a lista de rasters a
+    usar no cálculo: os originais que já estavam em metros e as cópias
+    reprojetadas dos demais. Rasters sem CRS, ilegíveis ou cuja reprojeção
+    falhou ficam fora da lista e são informados no log.
+    """
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+
+    if load_callback:
+        load_callback("start", f"Listando rasters em: {pasta_rasters}")
+    try:
+        rasters = listar_rasters_pasta(pasta_rasters, recursivo=recursivo)
+    finally:
+        if load_callback:
+            load_callback("stop", "Listagem de rasters concluída")
+    if not rasters:
+        raise ValueError("Nenhum raster .tif/.tiff foi encontrado na pasta selecionada.")
+
+    log(f"Verificando se cada raster está em metros ({len(rasters)} raster(s))...")
+    resultado = verificar_projecao_rasters(rasters, progress_callback=progress_callback, stop_event=stop_event)
+    registrar_verificacao_projecao(resultado, pasta_rasters, log)
+
+    finais: Dict[str, str] = {c: c for c, _ in resultado["metros"]}
+    nao_metros = [c for c, _ in resultado["nao_metros"]]
+    if nao_metros:
+        destino = Path(pasta_saida) / PASTA_REPROJ_METRICAS
+        log(f"Reprojetando {len(nao_metros)} raster(s) para metros (UTM) em: {destino}")
+        grupos: Dict[int, List[str]] = {}
+        for caminho in nao_metros:
+            checar_parada(stop_event)
+            epsg = sugerir_epsg_de_raster(caminho)
+            if epsg is None:
+                log(f"ERRO: não foi possível definir o EPSG UTM de {Path(caminho).name} (raster ignorado no cálculo).")
+                continue
+            grupos.setdefault(epsg, []).append(caminho)
+        for epsg, lista in sorted(grupos.items()):
+            res = reprojetar_rasters_lote(
+                rasters_lista=lista,
+                pasta_saida=str(destino),
+                epsg_destino=epsg,
+                sufixo_epsg=False,
+                resampling=Resampling.nearest,
+                max_workers=max_workers,
+                log_callback=log_callback,
+                progress_callback=progress_callback,
+                stop_event=stop_event,
+                pasta_base=pasta_rasters,
+                normalizar_nomes=False,
+            )
+            finais.update(res["mapa"])
+
+    usados = [finais[str(r)] for r in rasters if str(r) in finais]
+    reprojetados = len(usados) - len(resultado["metros"])
+    log(f"Rasters prontos para o cálculo: {len(usados)} | já em metros: {len(resultado['metros'])} | "
+        f"reprojetados: {reprojetados} | ignorados: {len(rasters) - len(usados)}")
+    if not usados:
+        raise ValueError("Nenhum raster em metros disponível para o cálculo (veja o log).")
+    return usados
 
 
 def preparar_df_metricas(df: pd.DataFrame, nivel: str, raster_path: Path) -> pd.DataFrame:
@@ -1218,6 +1375,7 @@ def calcular_metricas_paisagem_pylandstats(
     load_callback=None,
     progress_callback=None,
     stop_event: Optional[threading.Event] = None,
+    rasters_lista: Optional[Sequence[str]] = None,
 ) -> Dict[str, object]:
     """
     Calcula métricas de paisagem para todos os rasters de uma pasta (e subpastas).
@@ -1257,7 +1415,10 @@ def calcular_metricas_paisagem_pylandstats(
     checar_parada(stop_event)
 
     set_load("start", f"Listando rasters em: {pasta_rasters}")
-    rasters = listar_rasters_pasta(pasta_rasters, recursivo=recursivo)
+    if rasters_lista is not None:  # lista já preparada (ex.: rasters reprojetados para metros)
+        rasters = [Path(p) for p in rasters_lista]
+    else:
+        rasters = listar_rasters_pasta(pasta_rasters, recursivo=recursivo)
     set_load("stop", f"Rasters encontrados: {len(rasters)}")
 
     if not rasters:
@@ -1515,6 +1676,7 @@ def calcular_metricas_paisagem_r(
     load_callback=None,
     progress_callback=None,
     stop_event: Optional[threading.Event] = None,
+    rasters_lista: Optional[Sequence[str]] = None,
 ) -> Dict[str, object]:
     """Calcula métricas com o pacote R landscapemetrics (via rpy2), para todos
     os rasters da pasta (e subpastas). Salva CSV por raster (subpasta do ANO) e
@@ -1562,7 +1724,10 @@ def calcular_metricas_paisagem_r(
     set_load("stop", "Ambiente R pronto")
 
     set_load("start", "Listando rasters em: %s" % pasta_rasters)
-    rasters = listar_rasters_pasta(pasta_rasters, recursivo=recursivo)
+    if rasters_lista is not None:  # lista já preparada (ex.: rasters reprojetados para metros)
+        rasters = [Path(p) for p in rasters_lista]
+    else:
+        rasters = listar_rasters_pasta(pasta_rasters, recursivo=recursivo)
     set_load("stop", "Rasters encontrados: %d" % len(rasters))
     if not rasters:
         raise ValueError("Nenhum raster .tif/.tiff foi encontrado na pasta selecionada.")
@@ -2255,8 +2420,15 @@ def reprojetar_rasters_lote(
     load_callback=None,
     progress_callback=None,
     stop_event: Optional[threading.Event] = None,
+    pasta_base: Optional[str] = None,
+    normalizar_nomes: bool = True,
 ) -> Dict[str, object]:
-    """Reprojeta vários rasters em paralelo. Erros por arquivo não abortam o lote."""
+    """Reprojeta vários rasters em paralelo. Erros por arquivo não abortam o lote.
+
+    Com `pasta_base`, a estrutura de subpastas de cada raster em relação a essa
+    pasta é replicada dentro de `pasta_saida`. O resultado traz, além das
+    saídas e dos erros, o dicionário "mapa" {raster de entrada: raster de saída}.
+    """
     def log(msg: str):
         if log_callback:
             log_callback(msg)
@@ -2291,19 +2463,36 @@ def reprojetar_rasters_lote(
     set_progress(0, total_progresso, "Aguardando início da reprojeção")
     log(f"EPSG de destino: {epsg_destino}")
     log(f"Núcleos paralelos: {max_workers}")
+    if pasta_base:
+        log(f"Estrutura de subpastas replicada a partir de: {pasta_base}")
 
     contador_lock = threading.Lock()
     concluidas = {"n": 0}
     saidas: List[Path] = []
     erros: List[str] = []
+    mapa: Dict[str, str] = {}
+
+    def subpasta_relativa(caminho_entrada: str) -> str:
+        """Subpasta do raster em relação a pasta_base ("" na raiz ou fora dela)."""
+        if not pasta_base:
+            return ""
+        try:
+            rel = os.path.relpath(os.path.dirname(os.path.abspath(caminho_entrada)), os.path.abspath(pasta_base))
+        except ValueError:  # unidades de disco diferentes
+            return ""
+        return "" if rel == "." or rel.startswith("..") else rel
 
     def tarefa(caminho_entrada: str):
         checar_parada(stop_event)
         nome = Path(caminho_entrada).name
         try:
-            stem = normalizar_nome(Path(caminho_entrada).stem, max_len=120)
+            stem = Path(caminho_entrada).stem
+            if normalizar_nomes:
+                stem = normalizar_nome(stem, max_len=120)
             sufixo = f"_{epsg_destino}" if sufixo_epsg else ""
-            caminho_saida = pasta_saida_path / f"{stem}{sufixo}.tif"
+            caminho_saida = pasta_saida_path / subpasta_relativa(caminho_entrada) / f"{stem}{sufixo}.tif"
+            if os.path.normcase(os.path.abspath(caminho_saida)) == os.path.normcase(os.path.abspath(caminho_entrada)):
+                raise ValueError("o arquivo de saída coincide com o de entrada; escolha outra pasta de saída")
             reprojetar_raster_arquivo(
                 caminho_entrada=caminho_entrada,
                 caminho_saida=caminho_saida,
@@ -2329,7 +2518,8 @@ def reprojetar_rasters_lote(
                 status, nome, caminho, erro = futuro.result()
                 if status == "ok":
                     saidas.append(caminho)
-                    log(f"Reprojetado: {nome} -> {caminho.name}")
+                    mapa[str(futuros[futuro])] = str(caminho)
+                    log(f"Reprojetado: {nome} -> {os.path.relpath(caminho, pasta_saida_path)}")
                 else:
                     erros.append(f"{nome}: {erro}")
                     log(f"ERRO ao reprojetar {nome}: {erro}")
@@ -2342,7 +2532,7 @@ def reprojetar_rasters_lote(
                 f.cancel()
             raise
 
-    return {"saidas": saidas, "erros": erros, "total": len(rasters_lista)}
+    return {"saidas": saidas, "erros": erros, "total": len(rasters_lista), "mapa": mapa}
 
 
 # =============================================================================
@@ -3634,6 +3824,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.nivel_landscape_var = tk.BooleanVar(value=True)
         self.vizinhanca_metricas_var = tk.StringVar(value="8")
         self.recursivo_metricas_var = tk.BooleanVar(value=True)
+        self.reprojetar_metricas_var = tk.BooleanVar(value=False)
         self.workers_metricas_var = tk.StringVar(value=str(numero_padrao_de_nucleos()))
         # Motores de cálculo (o usuário pode marcar um, o outro, ou ambos)
         self.engine_pls_var = tk.BooleanVar(value=True)
@@ -4198,6 +4389,18 @@ class AplicacaoGradeBuffer(tk.Tk):
         ttk.Entry(opcoes, textvariable=self.cellsize_r_var, width=8).grid(row=1, column=5, sticky="w", padx=6, pady=(8, 0))
         ttk.Label(opcoes, text="options(landscapemetrics_cellsize)", foreground="#777777").grid(row=1, column=6, columnspan=2, sticky="w", padx=6, pady=(8, 0))
 
+        # Projeção: botão de verificação e opção de reprojetar para metros antes do cálculo
+        self.botao_verificar_proj = ttk.Button(
+            opcoes, text="Verificar projeção (metros)",
+            command=lambda: self._executar_thread(
+                self.botao_verificar_proj, self.botao_parar_metricas, self.stop_metricas_event,
+                lambda: self._com_botao_bloqueado(self.botao_metricas, self._verificar_projecao_metricas)))
+        self.botao_verificar_proj.grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=(8, 0))
+        ttk.Checkbutton(
+            opcoes, text="Reprojetar para metros (UTM) antes do cálculo os rasters que não estiverem em metros",
+            variable=self.reprojetar_metricas_var,
+        ).grid(row=2, column=3, columnspan=5, sticky="w", padx=(30, 6), pady=(8, 0))
+
         metricas_nb = ttk.Notebook(frame)
         metricas_nb.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=6, pady=6)
 
@@ -4233,7 +4436,9 @@ class AplicacaoGradeBuffer(tk.Tk):
             frame,
             row=6,
             texto_iniciar="Calcular métricas e salvar CSVs",
-            comando_iniciar=lambda: self._executar_thread(self.botao_metricas, self.botao_parar_metricas, self.stop_metricas_event, self._processar_metricas),
+            comando_iniciar=lambda: self._executar_thread(
+                self.botao_metricas, self.botao_parar_metricas, self.stop_metricas_event,
+                lambda: self._com_botao_bloqueado(self.botao_verificar_proj, self._processar_metricas)),
             comando_parar=lambda: self._solicitar_parada(self.stop_metricas_event, self.log_metricas),
         )
 
@@ -4253,7 +4458,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         barra = ttk.Scrollbar(frame, orient="vertical", command=self.log_metricas.yview)
         barra.grid(row=12, column=3, sticky="ns")
         self.log_metricas.configure(yscrollcommand=barra.set)
-        frame.rowconfigure(4, weight=2)
+        frame.rowconfigure(4, weight=3)  # as listas de métricas cedem mais espaço que o log
         frame.rowconfigure(12, weight=1)
 
         self._selecionar_todas_metricas(self.listbox_patch)
@@ -4358,6 +4563,46 @@ class AplicacaoGradeBuffer(tk.Tk):
         if pasta:
             self.pasta_saida_metricas_var.set(pasta)
 
+    def _com_botao_bloqueado(self, botao, funcao):
+        """Executa `funcao` mantendo `botao` desabilitado (um processamento por vez na aba)."""
+        botao.after(0, lambda: botao.config(state="disabled"))
+        try:
+            funcao()
+        finally:
+            botao.after(0, lambda: botao.config(state="normal"))
+
+    def _verificar_projecao_metricas(self):
+        """Botão "Verificar projeção (metros)": informa no log cada raster que não está em metros."""
+        self.log_metricas.after(0, lambda: self._limpar_log(self.log_metricas))
+        self._resetar_barras([
+            (self.progress_load_metricas, self.label_load_metricas, "Carregamento: aguardando pasta de rasters"),
+            (self.progress_proc_metricas, self.label_proc_metricas, "Processamento: aguardando início"),
+        ])
+        pasta_rasters = self.pasta_rasters_metricas_var.get().strip()
+        if not pasta_rasters:
+            raise ValueError("Selecione a pasta com os rasters recortados/reprojetados.")
+        log_cb = lambda msg: self._log(self.log_metricas, msg)
+        rasters = listar_rasters_pasta(pasta_rasters, recursivo=bool(self.recursivo_metricas_var.get()))
+        self._parar_barra_carregamento(self.progress_load_metricas, self.label_load_metricas,
+                                       f"Rasters encontrados: {len(rasters)}")
+        if not rasters:
+            raise ValueError("Nenhum raster .tif/.tiff foi encontrado na pasta selecionada.")
+        log_cb(f"Verificando a projeção de {len(rasters)} raster(s) em: {pasta_rasters}")
+        resultado = verificar_projecao_rasters(
+            rasters,
+            progress_callback=lambda valor, maximo, msg: self._atualizar_barra_processamento(
+                self.progress_proc_metricas, self.label_proc_metricas, valor, maximo, msg),
+            stop_event=self.stop_metricas_event,
+        )
+        resumo = registrar_verificacao_projecao(resultado, pasta_rasters, log_cb)
+        texto = resumo.replace(" | ", "\n")
+        if resultado["nao_metros"]:
+            dica = 'Marque "Reprojetar para metros (UTM) antes do cálculo" para reprojetá-los automaticamente.'
+            log_cb(dica)
+            self.log_metricas.after(0, lambda: messagebox.showwarning("Projeção dos rasters", texto + "\n\n" + dica))
+        else:
+            self.log_metricas.after(0, lambda: messagebox.showinfo("Projeção dos rasters", texto))
+
     def _processar_metricas(self):
         self.log_metricas.after(0, lambda: self._limpar_log(self.log_metricas))
         self._resetar_barras([
@@ -4404,6 +4649,21 @@ class AplicacaoGradeBuffer(tk.Tk):
         motores_txt = " + ".join([m for m, on in [("PyLandStats", usar_pls), ("landscapemetrics (R)", usar_r)] if on])
         self._log(self.log_metricas, f"Motores selecionados: {motores_txt}")
 
+        # Opcional: verifica a projeção e reprojeta para metros os rasters que não estiverem em metros.
+        rasters_lista = None
+        if bool(self.reprojetar_metricas_var.get()):
+            self._log(self.log_metricas, "=" * 70)
+            rasters_lista = preparar_rasters_em_metros(
+                pasta_rasters=pasta_rasters,
+                pasta_saida=pasta_saida,
+                recursivo=recursivo,
+                max_workers=workers,
+                log_callback=log_cb,
+                load_callback=load_cb,
+                progress_callback=prog_cb,
+                stop_event=self.stop_metricas_event,
+            )
+
         resumo = []
 
         # ---------------- Motor PyLandStats ----------------
@@ -4428,6 +4688,7 @@ class AplicacaoGradeBuffer(tk.Tk):
                 load_callback=load_cb,
                 progress_callback=prog_cb,
                 stop_event=self.stop_metricas_event,
+                rasters_lista=rasters_lista,
             )
             resumo.append(("PyLandStats", res_pls))
             self._log(self.log_metricas,
@@ -4460,6 +4721,7 @@ class AplicacaoGradeBuffer(tk.Tk):
                 load_callback=load_cb,
                 progress_callback=prog_cb,
                 stop_event=self.stop_metricas_event,
+                rasters_lista=rasters_lista,
             )
             resumo.append(("landscapemetrics (R)", res_r))
             self._log(self.log_metricas,
@@ -4626,7 +4888,7 @@ class AplicacaoGradeBuffer(tk.Tk):
             font=("Segoe UI", 12, "bold"),
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 10))
 
-        self._adicionar_linha_arquivo(frame, "Rasters de entrada:", self.rasters_reproj_texto_var, self._acao_selecionar_rasters_reproj, row=1)
+        self._adicionar_linha_pasta(frame, "Pasta dos rasters de entrada:", self.rasters_reproj_texto_var, self._acao_selecionar_rasters_reproj, row=1)
         self._adicionar_linha_pasta(frame, "Pasta de saída:", self.pasta_saida_reproj_var, self._acao_selecionar_pasta_reproj, row=2)
 
         opcoes = ttk.LabelFrame(frame, text="EPSG de destino e opções", padding=8)
@@ -4641,10 +4903,11 @@ class AplicacaoGradeBuffer(tk.Tk):
         ttk.Checkbutton(opcoes, text="Acrescentar sufixo do EPSG ao nome (ex.: _31984)", variable=self.sufixo_epsg_reproj_var).grid(row=1, column=0, columnspan=5, sticky="w", padx=6, pady=(6, 0))
 
         ajuda = (
-            "Selecione um ou vários rasters. Ao selecionar, o EPSG é sugerido automaticamente "
+            "Selecione a PASTA dos rasters: todos os .tif/.tiff da pasta e das subpastas são carregados "
+            "automaticamente. Ao selecionar, o EPSG é sugerido automaticamente "
             "(SIRGAS 2000 / UTM pela zona do centróide; ex.: 31978–31985 no Sul), mas o campo é editável. "
-            "Cada raster reprojetado é gravado na pasta de saída, preservando o nome (com sufixo opcional do EPSG). "
-            "Erros em um arquivo não interrompem o lote."
+            "Cada raster reprojetado é gravado na pasta de saída, na mesma estrutura de subpastas da entrada, "
+            "preservando o nome (com sufixo opcional do EPSG). Erros em um arquivo não interrompem o lote."
         )
         ttk.Label(frame, text=ajuda, foreground="#555555", justify="left", wraplength=1040).grid(row=4, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 8))
 
@@ -4674,15 +4937,43 @@ class AplicacaoGradeBuffer(tk.Tk):
         frame.rowconfigure(11, weight=1)
 
     def _acao_selecionar_rasters_reproj(self):
-        caminhos = self._selecionar_multiplos_rasters("Selecione um ou mais rasters para reprojetar")
-        if caminhos:
-            self.rasters_reproj_lista = list(caminhos)
-            self.rasters_reproj_texto_var.set(caminhos[0] if len(caminhos) == 1 else f"{len(caminhos)} rasters selecionados")
-            if not self.pasta_saida_reproj_var.get():
-                self.pasta_saida_reproj_var.set(str(Path(caminhos[0]).parent / "saida_rasters_reprojetados"))
-            # Sugestão automática de EPSG a partir do primeiro raster.
-            if not self.epsg_reproj_var.get().strip():
-                self._acao_sugerir_epsg_reproj()
+        pasta = self._selecionar_pasta("Selecione a pasta com os rasters para reprojetar (as subpastas são lidas automaticamente)")
+        if not pasta:
+            return
+        self.rasters_reproj_texto_var.set(pasta)
+        if not self.pasta_saida_reproj_var.get():
+            # Pasta irmã da entrada: fora dela, para a saída não ser relida como entrada.
+            p = Path(pasta)
+            self.pasta_saida_reproj_var.set(str(p.parent / f"{p.name}_reprojetado"))
+        self._carregar_rasters_reproj(avisar=True)
+        # Sugestão automática de EPSG a partir do primeiro raster.
+        if self.rasters_reproj_lista and not self.epsg_reproj_var.get().strip():
+            self._acao_sugerir_epsg_reproj()
+
+    def _carregar_rasters_reproj(self, avisar: bool = False) -> List[str]:
+        """Lê a pasta de entrada da aba 6 e todas as subpastas e carrega a lista de rasters."""
+        pasta = self.rasters_reproj_texto_var.get().strip()
+        self.rasters_reproj_lista = []
+        if not pasta:
+            return []
+        try:
+            rasters = listar_rasters_pasta(pasta, recursivo=True)
+        except ValueError:
+            rasters = []
+        # Não relê como entrada o que já estiver dentro da pasta de saída.
+        saida = self.pasta_saida_reproj_var.get().strip()
+        if saida:
+            saida_abs = os.path.normcase(os.path.abspath(saida)) + os.sep
+            rasters = [r for r in rasters if not os.path.normcase(os.path.abspath(r)).startswith(saida_abs)]
+        self.rasters_reproj_lista = [str(r) for r in rasters]
+        n_pastas = len({str(r.parent) for r in rasters})
+        self._log(self.log_reproj, f"Pasta de entrada: {pasta}")
+        self._log(self.log_reproj, f"Rasters carregados (pasta e subpastas): {len(rasters)} em {n_pastas} pasta(s)")
+        self._parar_barra_carregamento(self.progress_load_reproj, self.label_load_reproj,
+                                       f"Rasters carregados: {len(rasters)} em {n_pastas} pasta(s)")
+        if avisar and not rasters:
+            messagebox.showwarning("Rasters de entrada", "Nenhum raster .tif/.tiff foi encontrado na pasta nem nas subpastas.")
+        return self.rasters_reproj_lista
 
     def _acao_selecionar_pasta_reproj(self):
         pasta = self._selecionar_pasta("Selecione a pasta de saída dos rasters reprojetados")
@@ -4691,7 +4982,9 @@ class AplicacaoGradeBuffer(tk.Tk):
 
     def _acao_sugerir_epsg_reproj(self):
         if not self.rasters_reproj_lista:
-            messagebox.showinfo("Sugerir EPSG", "Selecione ao menos um raster primeiro.")
+            self._carregar_rasters_reproj()  # a pasta pode ter sido digitada no campo
+        if not self.rasters_reproj_lista:
+            messagebox.showinfo("Sugerir EPSG", "Selecione primeiro a pasta com os rasters.")
             return
         epsg = sugerir_epsg_de_raster(self.rasters_reproj_lista[0])
         if epsg:
@@ -4706,11 +4999,17 @@ class AplicacaoGradeBuffer(tk.Tk):
             (self.progress_load_reproj, self.label_load_reproj, "Carregamento: aguardando arquivos"),
             (self.progress_proc_reproj, self.label_proc_reproj, "Processamento: aguardando início"),
         ])
-        if not self.rasters_reproj_lista:
-            raise ValueError("Selecione um ou mais rasters.")
+        pasta_entrada = self.rasters_reproj_texto_var.get().strip()
+        if not pasta_entrada:
+            raise ValueError("Selecione a pasta com os rasters de entrada.")
         pasta_saida = self.pasta_saida_reproj_var.get().strip()
         if not pasta_saida:
             raise ValueError("Selecione a pasta de saída.")
+        if os.path.normcase(os.path.abspath(pasta_saida)) == os.path.normcase(os.path.abspath(pasta_entrada)):
+            raise ValueError("A pasta de saída deve ser diferente da pasta de entrada.")
+        # Relê a pasta e as subpastas na hora de processar (o conteúdo pode ter mudado).
+        if not self._carregar_rasters_reproj():
+            raise ValueError("Nenhum raster .tif/.tiff foi encontrado na pasta de entrada nem nas subpastas.")
         epsg_txt = self.epsg_reproj_var.get().strip()
         if not epsg_txt:
             raise ValueError("Informe (ou sugira) o EPSG de destino.")
@@ -4732,6 +5031,7 @@ class AplicacaoGradeBuffer(tk.Tk):
             load_callback=lambda acao, msg: self._iniciar_barra_carregamento(self.progress_load_reproj, self.label_load_reproj, msg) if acao == "start" else self._parar_barra_carregamento(self.progress_load_reproj, self.label_load_reproj, msg),
             progress_callback=lambda valor, maximo, msg: self._atualizar_barra_processamento(self.progress_proc_reproj, self.label_proc_reproj, valor, maximo, msg),
             stop_event=self.stop_reproj_event,
+            pasta_base=pasta_entrada,
         )
         self._log(self.log_reproj, "=" * 70)
         self._log(self.log_reproj, f"Reprojetados: {len(resultado['saidas'])}/{resultado['total']} | erros: {len(resultado['erros'])}")

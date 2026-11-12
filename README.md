@@ -45,6 +45,11 @@ GeoLand_V1.exe --teste-metricas C:\pasta\dos\rasters C:\pasta\de\saida
 Os CSVs e o arquivo `relatorio_teste_metricas.txt` são gravados na pasta de
 saída; o relatório também deve terminar com `RESULTADO: OK`.
 
+Há ainda `GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida>`,
+que abre a janela e aciona sozinho os botões das abas 6 e 4 (leitura de
+subpastas, estrutura replicada, verificação de projeção e reprojeção antes
+do cálculo) com uma amostra dos rasters, gravando `relatorio_teste_gui.txt`.
+
 ## Tutorial de uso
 
 O fluxo completo vai da criação dos pontos amostrais até a tabela final de
@@ -94,9 +99,17 @@ Calcula as métricas para todos os rasters de uma pasta.
 3. Escolha a **Vizinhança** (4 ou 8 vizinhos).
 4. Em **Motores**, marque **PyLandStats**, **landscapemetrics (R)** ou ambos.
    Para o motor R, confira o **cellsize (R)** (tamanho do pixel, 30 por padrão).
-5. Nas páginas "Métricas PyLandStats" e "Métricas landscapemetrics (R)",
+5. Clique em **Verificar projeção (metros)** para conferir o CRS de cada
+   raster: o log lista cada arquivo que não está em metros (graus, sem CRS
+   ou ilegível) e mostra o total.
+6. Se houver rasters fora de metros, marque **Reprojetar para metros (UTM)
+   antes do cálculo**: cada um deles é reprojetado (vizinho mais próximo)
+   para o SIRGAS 2000 / UTM da sua zona e gravado em
+   `<pasta de saída>\rasters_reprojetados_metros`, com o mesmo nome e as
+   mesmas subpastas; os originais não são alterados.
+7. Nas páginas "Métricas PyLandStats" e "Métricas landscapemetrics (R)",
    escolha as métricas de cada nível (botões **Todas** e **Limpar**).
-6. Inicie o cálculo. São gravados um CSV por raster e um CSV geral.
+8. Inicie o cálculo. São gravados um CSV por raster e um CSV geral.
 
 ### Aba 5 — Buffer + Métricas (SHP)
 
@@ -105,9 +118,13 @@ gerando um shapefile com as métricas como atributos, pronto para o QGIS.
 
 ### Aba 6 — Reprojeção de rasters
 
-Reprojeta em lote os rasters de uma pasta. Informe o **EPSG** de destino
-(o botão **Sugerir EPSG** propõe um código), a **Reamostragem** e o número
-de núcleos. Use antes das abas 3 e 4 se os rasters estiverem em graus.
+Reprojeta em lote os rasters de uma pasta. Selecione a **pasta dos rasters
+de entrada**: todos os `.tif`/`.tiff` da pasta e das subpastas são
+carregados automaticamente, e a pasta de saída recebe a **mesma estrutura
+de subpastas**. Informe o **EPSG** de destino (o botão **Sugerir EPSG**
+propõe um código), a **Reamostragem** e o número de núcleos. Use antes das
+abas 3 e 4 se os rasters estiverem em graus (na aba 4 também é possível
+reprojetar automaticamente antes do cálculo).
 
 ### Aba 7 — Fundido (memória)
 
