@@ -1,4 +1,2 @@
-# Executavel compilado: arquivos gravados byte a byte, sem conversao de fim de linha.
-dist_com_R/** -text
-# Unico arquivo acima do limite de 100 MB do GitHub: vai pelo Git LFS.
-dist_com_R/GeoLand_V1/_internal/R/library/terra/libs/x64/terra.dll filter=lfs diff=lfs merge=lfs -text
+# O zip do executavel passa de 100 MB (limite do GitHub por arquivo): vai pelo Git LFS.
+executavel/*.zip filter=lfs diff=lfs merge=lfs -text

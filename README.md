@@ -12,14 +12,14 @@ O executável já traz o Python, o R 4.5.2 e os pacotes `landscapemetrics` e
 
 ## Download e instalação
 
-1. Nesta página do repositório, clique em **Code → Download ZIP** (cerca de
-   310 MB).
-2. Extraia o `.zip` em qualquer pasta.
-3. Abra `dist_com_R\GeoLand_V1` e dê duplo clique em **`GeoLand_V1.exe`**.
+1. Baixe o executável:
+   **[GeoLand_V1_win64.zip](https://github.com/rnvuefsppgm/GeoLand/raw/main/executavel/GeoLand_V1_win64.zip)**
+   (311 MB).
+2. Extraia o `.zip` em qualquer pasta (ex.: `C:\GeoLand_V1`).
+3. Abra a pasta `GeoLand_V1` e dê duplo clique em **`GeoLand_V1.exe`**.
 
-A pasta `GeoLand_V1` é independente: pode ser copiada sozinha para outro
-local ou outro computador. Quem preferir `git clone` precisa do Git LFS
-instalado, porque um dos arquivos do R passa de 100 MB.
+Use o link acima: o botão **Code → Download ZIP** traz só o código-fonte,
+porque o zip do executável é armazenado em Git LFS.
 
 Requisitos: Windows 10 ou 11, 64 bits. Mantenha o `.exe` junto da pasta
 `_internal` — copiar só o `.exe` não funciona. Na primeira abertura o Windows
@@ -121,11 +121,11 @@ GeoLand.spec                                     Especificação do PyInstaller
 requirements.txt                                 Dependências Python
 montar_R_portatil.ps1                            Monta a pasta R_portable (R + pacotes)
 build_windows.bat                                Cria o venv e gera o executável
-dist_com_R/GeoLand_V1/                           Executável compilado, pronto para uso
+executavel/GeoLand_V1_win64.zip                  Executável compilado (Git LFS)
 ```
 
-A pasta `dist_com_R/GeoLand_V1` contém o `GeoLand_V1.exe` e a subpasta
-`_internal` (Python, bibliotecas e o R portátil), cerca de 760 MB.
+O zip contém a pasta `GeoLand_V1` com o `GeoLand_V1.exe` e a subpasta
+`_internal` (Python, bibliotecas e o R portátil), cerca de 760 MB extraídos.
 
 ## Executar pelo código-fonte
 
@@ -157,9 +157,7 @@ roda o PyInstaller. O resultado fica em `dist\GeoLand_V1\GeoLand_V1.exe`.
 |---|---|
 | "Failed to load Python DLL" ao abrir | O `.exe` foi separado da pasta `_internal`. Use a pasta `GeoLand_V1` inteira. |
 | Antivírus ou SmartScreen bloqueia | O executável não é assinado; libere a execução. |
-| Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. |
-| Motor R falha ao carregar o pacote `terra` depois do Download ZIP | O `terra.dll` (arquivo Git LFS, 111 MB) veio incompleto. Baixe-o [neste link](https://github.com/rnvuefsppgm/GeoLand/raw/main/dist_com_R/GeoLand_V1/_internal/R/library/terra/libs/x64/terra.dll) e substitua o arquivo em `GeoLand_V1\_internal\R\library\terra\libs\x64`. |
-| Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
+| Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. || Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
 | Demora para abrir | Normal na primeira execução (o antivírus examina os arquivos). |
 
 ## Componentes de terceiros
