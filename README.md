@@ -35,6 +35,16 @@ GeoLand_V1.exe --teste-motores relatorio.txt
 
 O arquivo `relatorio.txt` deve terminar com `RESULTADO: OK`.
 
+Para testar a aba 4 (Métricas) com os seus próprios rasters, sem abrir a
+interface — os dois motores, os três níveis e todas as métricas, em paralelo:
+
+```bat
+GeoLand_V1.exe --teste-metricas C:\pasta\dos\rasters C:\pasta\de\saida
+```
+
+Os CSVs e o arquivo `relatorio_teste_metricas.txt` são gravados na pasta de
+saída; o relatório também deve terminar com `RESULTADO: OK`.
+
 ## Tutorial de uso
 
 O fluxo completo vai da criação dos pontos amostrais até a tabela final de
@@ -157,7 +167,9 @@ roda o PyInstaller. O resultado fica em `dist\GeoLand_V1\GeoLand_V1.exe`.
 |---|---|
 | "Failed to load Python DLL" ao abrir | O `.exe` foi separado da pasta `_internal`. Use a pasta `GeoLand_V1` inteira. |
 | Antivírus ou SmartScreen bloqueia | O executável não é assinado; libere a execução. |
-| Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. || Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
+| Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. |
+| "Can't pickle <function _lsm_r_init>" ou "WinError 6" ao calcular métricas | Erro da primeira compilação da V1, já corrigido: baixe o zip de novo. |
+| Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
 | Demora para abrir | Normal na primeira execução (o antivírus examina os arquivos). |
 
 ## Componentes de terceiros
