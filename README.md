@@ -46,9 +46,10 @@ Os CSVs e o arquivo `relatorio_teste_metricas.txt` são gravados na pasta de
 saída; o relatório também deve terminar com `RESULTADO: OK`.
 
 Há ainda `GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida>`,
-que abre a janela e aciona sozinho os botões das abas 6 e 4 (leitura de
-subpastas, estrutura replicada, verificação de projeção e reprojeção antes
-do cálculo) com uma amostra dos rasters, gravando `relatorio_teste_gui.txt`.
+que abre a janela e aciona sozinho os botões das abas 6, 4 e 9 (leitura de
+subpastas, estrutura replicada, verificação de projeção, reprojeção antes
+do cálculo e reclassificação) com uma amostra dos rasters, gravando
+`relatorio_teste_gui.txt`.
 
 ## Tutorial de uso
 
@@ -138,6 +139,33 @@ Parquet por ano, Parquet único e shapefile com métricas.
 Junta os CSVs (ou Parquets) gerados em uma tabela única. Informe o nome base
 do arquivo e os formatos de saída: **CSV único**, **Parquet único** ou
 **Parquet por ano**.
+
+### Aba 9 — Reclassificar rasters
+
+Reclassifica rasters em lote por regras `Val_Min, Val_Max, Novo_Val` (a aba
+"Reclassificar" do GeoRasterTools, equivalente ao `terra::classify`). Serve,
+por exemplo, para agrupar classes do MapBiomas antes de calcular as métricas.
+
+1. Selecione a **pasta dos rasters de entrada** (as subpastas são lidas e
+   replicadas na saída) e a **pasta de saída**. A lista de arquivos é
+   preenchida ao selecionar a pasta; **Escanear arquivos** relê a pasta.
+2. Em **Parâmetros de saída**, escolha o tipo de dado, o valor dos pixels
+   não mapeados (sem valor ou zero), o lado fechado do intervalo e o
+   prefixo do nome de saída (`Reclass_` por padrão).
+3. No **Editor de regras**, dê duplo clique em uma célula para editar e use
+   **+ Linha** e **- Linha selecionada**. A regra `Padrao` agrupa as classes
+   do MapBiomas nos valores 1 (vegetação natural), 14 (agropecuária),
+   22 (área não vegetada), 24 (área urbana) e 26 (água).
+4. Para usar regras diferentes por arquivo, crie outro conjunto (**Criar**)
+   ou carregue um `.txt` (**Carregar .txt**), selecione arquivos na lista e
+   clique em **Atribuir regra ativa aos selecionados**. **Salvar .txt**
+   grava as regras do editor (o formato é o mesmo do GeoRasterTools).
+5. **Executar reclassificação** grava
+   `<pasta de saída>\<subpasta>\Reclass_<nome>.tif`.
+
+Com "NA (sem valor)", os pixels sem dado e os não mapeados recebem o valor
+de sem-dado do tipo escolhido (255 em 8 bits). A aba 4 continua lendo o
+ano do nome do arquivo mesmo com o prefixo `Reclass_`.
 
 ## Estrutura do repositório
 

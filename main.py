@@ -203,7 +203,9 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
     aba 6 - seleciona a PASTA da amostra e reprojeta para graus (EPSG 4674),
     conferindo a leitura das subpastas e a estrutura replicada na saida;
     aba 4 - "Verificar projecao (metros)" e, com "Reprojetar para metros"
-    marcado, o calculo com os dois motores. Grava relatorio_teste_gui.txt.
+    marcado, o calculo com os dois motores;
+    aba 9 - escaneia a pasta, cria/salva/carrega regras e reclassifica,
+    conferindo o resultado pixel a pixel. Grava relatorio_teste_gui.txt.
     """
     import shutil
     import threading
@@ -225,6 +227,7 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
         return sorted(str(p.relative_to(base).with_suffix("")).lower() for p in Path(base).rglob("*.tif"))
 
     try:
+        import numpy as np
         import pandas as pd
         import rasterio
 
@@ -333,6 +336,54 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 log = janela.log_metricas.get("1.0", "end")
                 conferir("Aba 4 - motor R em processos paralelos", "Falha no modo paralelo" not in log,
                          "; ".join(l for l in log.splitlines() if l.startswith(("Executando em", "Rasters prontos"))))
+
+                # Aba 9: escanear a pasta (com subpastas), criar uma regra, salvar e carregar
+                # o .txt, atribuir a regra carregada a 3 arquivos e reclassificar tudo.
+                from tkinter import filedialog
+
+                reclass, txt = saida / "aba9_reclass", saida / "regra_teste.txt"
+                janela.pasta_saida_reclass_var.set(str(reclass))
+                janela._selecionar_pasta = lambda *a, **k: str(amostra)
+                janela._acao_selecionar_pasta_entrada_reclass()
+                conferir("Aba 9 - arquivos escaneados (com subpastas)", len(janela.reclass_arquivos) == n,
+                         "%d arquivos" % len(janela.reclass_arquivos))
+                janela.nova_regra_reclass_var.set("Teste")
+                janela._acao_criar_regra_reclass()
+                arvore = janela.tree_regras_reclass
+                arvore.delete(*arvore.get_children())
+                arvore.insert("", "end", values=(1, 100, 7))
+                filedialog.asksaveasfilename = lambda **k: str(txt)
+                filedialog.askopenfilename = lambda **k: str(txt)
+                janela._acao_salvar_txt_reclass()
+                janela._acao_carregar_txt_reclass()  # vira a regra ativa "regra_teste"
+                conferir("Aba 9 - salvar e carregar regras em .txt",
+                         janela.reclass_regras.get("regra_teste") == [(1.0, 100.0, 7.0)],
+                         str(janela.reclass_regras.get("regra_teste")))
+                itens = janela.tree_arquivos_reclass.get_children()
+                janela.tree_arquivos_reclass.selection_set(itens[:3])
+                janela._acao_atribuir_selecionados_reclass()
+                acionar(janela.botao_reclass, "_processar_reclass")
+                # Conferencia independente, pixel a pixel (na entrada, 0 = sem dado).
+                esperado = {"regra_teste": np.full(256, 255, dtype="uint8"), "Padrao": np.full(256, 255, dtype="uint8")}
+                esperado["regra_teste"][1:101] = 7
+                for minimo, _maximo, novo in app.REGRAS_RECLASS_PADRAO:
+                    esperado["Padrao"][int(minimo)] = novo
+                diferentes, meta_ok = 0, True
+                for arq in janela.reclass_arquivos:
+                    rel = Path(arq["Arquivo"])
+                    with rasterio.open(arq["Caminho"]) as ent, rasterio.open(
+                            reclass / rel.parent / ("Reclass_" + rel.name)) as sai:
+                        diferentes += int((esperado[arq["Regra"]][ent.read(1)] != sai.read(1)).sum())
+                        meta_ok = (meta_ok and sai.dtypes[0] == "uint8" and sai.nodata == 255
+                                   and sai.crs == ent.crs and sai.transform == ent.transform)
+                com_teste = sum(1 for arq in janela.reclass_arquivos if arq["Regra"] == "regra_teste")
+                conferir("Aba 9 - reclassificacao conferida pixel a pixel",
+                         len(estrutura(reclass)) == n and diferentes == 0 and meta_ok and com_teste == 3,
+                         "%d rasters (%d com a regra carregada), %d pixels diferentes, subpastas replicadas" % (
+                             len(estrutura(reclass)), com_teste, diferentes))
+                conferir("Aba 9 - ano lido do nome com prefixo",
+                         app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif") == "1985",
+                         app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif"))
             except Exception:  # noqa: BLE001
                 falhas.append("roteiro")
                 linhas.append(traceback.format_exc())

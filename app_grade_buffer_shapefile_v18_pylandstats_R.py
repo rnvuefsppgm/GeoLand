@@ -457,7 +457,8 @@ def extrair_ano_de_recorte(caminho: str) -> str:
         clip_id_7_diam_1000_anoNA.tif -> anoNA
     """
     stem = Path(caminho).stem
-    if re.match(r"(?i)^clip_id_.+_diam_.+_[^_]+$", stem):
+    # Aceita um prefixo antes de "clip_id_" (ex.: "Reclass_", da aba 9).
+    if re.match(r"(?i)^(?:.+_)?clip_id_.+_diam_.+_[^_]+$", stem):
         return stem.rsplit("_", 1)[-1]
     return extrair_ano_do_nome(caminho)
 
@@ -2472,16 +2473,6 @@ def reprojetar_rasters_lote(
     erros: List[str] = []
     mapa: Dict[str, str] = {}
 
-    def subpasta_relativa(caminho_entrada: str) -> str:
-        """Subpasta do raster em relação a pasta_base ("" na raiz ou fora dela)."""
-        if not pasta_base:
-            return ""
-        try:
-            rel = os.path.relpath(os.path.dirname(os.path.abspath(caminho_entrada)), os.path.abspath(pasta_base))
-        except ValueError:  # unidades de disco diferentes
-            return ""
-        return "" if rel == "." or rel.startswith("..") else rel
-
     def tarefa(caminho_entrada: str):
         checar_parada(stop_event)
         nome = Path(caminho_entrada).name
@@ -2490,7 +2481,7 @@ def reprojetar_rasters_lote(
             if normalizar_nomes:
                 stem = normalizar_nome(stem, max_len=120)
             sufixo = f"_{epsg_destino}" if sufixo_epsg else ""
-            caminho_saida = pasta_saida_path / subpasta_relativa(caminho_entrada) / f"{stem}{sufixo}.tif"
+            caminho_saida = pasta_saida_path / _subpasta_relativa(caminho_entrada, pasta_base) / f"{stem}{sufixo}.tif"
             if os.path.normcase(os.path.abspath(caminho_saida)) == os.path.normcase(os.path.abspath(caminho_entrada)):
                 raise ValueError("o arquivo de saída coincide com o de entrada; escolha outra pasta de saída")
             reprojetar_raster_arquivo(
@@ -2533,6 +2524,296 @@ def reprojetar_rasters_lote(
             raise
 
     return {"saidas": saidas, "erros": erros, "total": len(rasters_lista), "mapa": mapa}
+
+
+def _subpasta_relativa(caminho_arquivo: str, pasta_base: Optional[str]) -> str:
+    """Subpasta do arquivo em relação a pasta_base ("" na raiz ou fora dela)."""
+    if not pasta_base:
+        return ""
+    try:
+        rel = os.path.relpath(os.path.dirname(os.path.abspath(caminho_arquivo)), os.path.abspath(pasta_base))
+    except ValueError:  # unidades de disco diferentes
+        return ""
+    return "" if rel == "." or rel.startswith("..") else rel
+
+
+# =============================================================================
+# Processamento 9: reclassificação de rasters por regras (Val_Min, Val_Max, Novo_Val)
+# Portado da aba "Reclassificar" do GeoRasterTools (equivalente ao terra::classify).
+# =============================================================================
+
+# Regras padrão (nomenclatura MapBiomas): cada tupla é (Val_Min, Val_Max, Novo_Val).
+REGRAS_RECLASS_PADRAO = [
+    (1, 1, 1), (3, 3, 1), (4, 4, 1), (5, 5, 1),
+    (6, 6, 1), (49, 49, 1), (10, 10, 1), (11, 11, 1),
+    (12, 12, 1), (32, 32, 1), (29, 29, 1), (50, 50, 1),
+    (14, 14, 14), (15, 15, 14), (18, 18, 14), (19, 19, 14),
+    (39, 39, 14), (20, 20, 14), (40, 40, 14), (62, 62, 14),
+    (41, 41, 14), (36, 36, 14), (46, 46, 14), (47, 47, 14),
+    (35, 35, 14), (48, 48, 14), (9, 9, 14), (21, 21, 14),
+    (22, 22, 22), (23, 23, 22), (75, 75, 22), (25, 25, 22),
+    (24, 24, 24),
+    (30, 30, 22),
+    (26, 26, 26), (33, 33, 26), (31, 31, 26),
+]
+COLUNAS_REGRA_RECLASS = ("Val_Min", "Val_Max", "Novo_Val")
+NOME_REGRA_PADRAO = "Padrao"
+
+# Tipos de dado de saída: código no estilo terra/GDAL -> (dtype numpy, bits).
+RECLASS_DTYPES = {
+    "INT1U": ("uint8", 8), "INT2U": ("uint16", 16), "INT2S": ("int16", 16), "INT4S": ("int32", 32),
+    "FLT4S": ("float32", 32), "FLT8S": ("float64", 64), "BYTE": ("uint8", 8),
+}
+# Nodata gravado quando os pixels não mapeados ficam "NA" (sem valor).
+RECLASS_NODATA_NA = {"uint8": 255, "int16": -9999, "uint16": 0, "int32": -9999}
+RECLASS_NAO_MAPEADOS = {"NA (sem valor)": "NA", "Zero (0)": "0"}
+RECLASS_INTERVALOS = {"Ambos os lados (NA)": None, "Direita (TRUE)": True, "Esquerda (FALSE)": False}
+
+
+def rotulo_dtype_reclass(codigo: str) -> str:
+    """'INT2U' -> 'INT2U - 16 bits - uint16' (o número do código conta BYTES, não bits)."""
+    np_dtype, bits = RECLASS_DTYPES[codigo]
+    return f"{codigo} - {bits} bits - {np_dtype}"
+
+
+def regras_reclass_padrao() -> List[tuple]:
+    """Cópia das regras padrão."""
+    return [tuple(map(float, r)) for r in REGRAS_RECLASS_PADRAO]
+
+
+def ler_regras_reclass_txt(caminho: str) -> List[tuple]:
+    """Lê um .txt com linhas 'Val_Min,Val_Max,Novo_Val' (separador: vírgula, ponto e
+    vírgula, tab ou espaço), ignorando comentários (#) e linhas em branco."""
+    regras: List[tuple] = []
+    with open(caminho, "r", encoding="utf-8", errors="replace") as fh:
+        for linha in fh:
+            if re.match(r"^\s*#|^\s*$", linha):
+                continue
+            nums: List[float] = []
+            for parte in re.split(r"[,;\t ]+", linha.strip()):
+                try:
+                    nums.append(float(parte))
+                except ValueError:
+                    continue
+            if len(nums) >= 3:
+                regras.append((nums[0], nums[1], nums[2]))
+    return regras
+
+
+def salvar_regras_reclass_txt(regras, caminho: str, nome_regra: str = "Regra") -> None:
+    """Grava as regras no mesmo formato de texto usado pelo GeoRasterTools."""
+    linhas = [
+        "# GeoLand - Regras de Reclassificacao",
+        f"# Regra: {nome_regra}",
+        "# Formato: Val_Min,Val_Max,Novo_Val",
+        "# ----------------------------------------",
+    ] + [f"{r[0]:g},{r[1]:g},{r[2]:g}" for r in regras]
+    with open(caminho, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(linhas) + "\n")
+
+
+def reclassificar_array(dados: np.ndarray, regras, outros: Optional[float], direita: Optional[bool] = None,
+                        incluir_minimo: bool = True, validos: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Aplica as regras a um array (resultado em float64).
+
+    `direita` segue o terra::classify: True -> (min, max]; False -> [min, max);
+    None -> [min, max]. Com direita=True e incluir_minimo=True, o menor Val_Min
+    de todas as regras também é incluído. As regras valem na ordem dada: a
+    primeira que casar define o pixel. `outros` é o valor dos pixels que não
+    casam com nenhuma regra (None = NaN) e dos pixels fora de `validos`.
+    """
+    vazio = np.nan if outros is None else float(outros)
+    saida = np.full(dados.shape, vazio, dtype=np.float64)
+    atribuido = np.zeros(dados.shape, dtype=bool)
+    menor = min(r[0] for r in regras) if regras else None
+    for vmin, vmax, novo in regras:
+        if direita is True:
+            m = (dados > vmin) & (dados <= vmax)
+            if incluir_minimo and vmin == menor:
+                m |= dados == vmin
+        elif direita is False:
+            m = (dados >= vmin) & (dados < vmax)
+        else:
+            m = (dados >= vmin) & (dados <= vmax)
+        m &= ~atribuido
+        saida[m] = novo
+        atribuido |= m
+    if validos is not None:
+        saida[~validos] = vazio
+    return saida
+
+
+def reclassificar_raster_arquivo(
+    caminho_entrada: str,
+    regras,
+    caminho_saida: str,
+    dtype: str = "INT1U",
+    outros: str = "NA",
+    direita: Optional[bool] = None,
+    incluir_minimo: bool = True,
+    sobrescrever: bool = True,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
+    """
+    Reclassifica todas as bandas de um raster e grava em GeoTIFF (LZW).
+
+    Processa em faixas de linhas, para a memória não crescer com o tamanho do
+    raster. Em rasters inteiros de até 16 bits usa uma tabela com o resultado
+    de cada valor possível, muito mais rápida que testar regra a regra em cada
+    pixel (o resultado é o mesmo).
+    """
+    from rasterio.windows import Window
+
+    if not sobrescrever and os.path.exists(caminho_saida):
+        raise FileExistsError(f"arquivo já existe: {caminho_saida}")
+    if os.path.normcase(os.path.abspath(caminho_saida)) == os.path.normcase(os.path.abspath(caminho_entrada)):
+        raise ValueError("o arquivo de saída coincide com o de entrada; mude a pasta de saída ou o prefixo")
+
+    outros_val = None if outros == "NA" else 0.0
+    vazio = np.nan if outros_val is None else outros_val
+    np_dtype = RECLASS_DTYPES[dtype][0]
+    nodata_saida = RECLASS_NODATA_NA.get(np_dtype, np.nan) if outros_val is None else 0
+
+    with rasterio.open(caminho_entrada) as src:
+        perfil = src.meta.copy()
+        perfil.update(driver="GTiff", dtype=np_dtype, nodata=nodata_saida, compress="LZW", tiled=True,
+                      BIGTIFF="IF_SAFER")
+        tabela, minimo = None, 0
+        tipo_entrada = np.dtype(src.dtypes[0])
+        if len(set(src.dtypes)) == 1 and np.issubdtype(tipo_entrada, np.integer) and tipo_entrada.itemsize <= 2:
+            info = np.iinfo(tipo_entrada)
+            minimo = int(info.min)
+            tabela = reclassificar_array(np.arange(info.min, info.max + 1, dtype=np.float64),
+                                         regras, outros_val, direita, incluir_minimo)
+        linhas_por_faixa = max(1, 4_000_000 // max(1, src.width * src.count))
+        Path(caminho_saida).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with rasterio.open(caminho_saida, "w", **perfil) as dst:
+                for linha in range(0, src.height, linhas_por_faixa):
+                    checar_parada(stop_event)
+                    janela = Window(0, linha, src.width, min(linhas_por_faixa, src.height - linha))
+                    bruto = src.read(window=janela)
+                    if tabela is not None:
+                        resultado = tabela[bruto.astype(np.int64) - minimo]
+                        if src.nodata is not None:
+                            resultado[bruto == src.nodata] = vazio
+                    else:
+                        dados = bruto.astype(np.float64)
+                        validos = np.isfinite(dados)
+                        if src.nodata is not None:
+                            validos &= dados != src.nodata
+                        resultado = reclassificar_array(dados, regras, outros_val, direita, incluir_minimo, validos)
+                    if outros_val is None:
+                        resultado = np.where(np.isnan(resultado), nodata_saida, resultado)
+                    dst.write(resultado.astype(np_dtype), window=janela)
+        except BaseException:
+            try:  # não deixa um raster pela metade na pasta de saída
+                os.remove(caminho_saida)
+            except OSError:
+                pass
+            raise
+
+
+def reclassificar_rasters_lote(
+    arquivos: Sequence[tuple],
+    regras_por_nome: Dict[str, list],
+    pasta_saida: str,
+    dtype: str = "INT1U",
+    outros: str = "NA",
+    direita: Optional[bool] = None,
+    incluir_minimo: bool = True,
+    sobrescrever: bool = True,
+    prefixo: str = "Reclass_",
+    pasta_base: Optional[str] = None,
+    max_workers: Optional[int] = None,
+    log_callback=None,
+    progress_callback=None,
+    stop_event: Optional[threading.Event] = None,
+) -> Dict[str, object]:
+    """
+    Reclassifica vários rasters em paralelo. `arquivos` é uma lista de
+    (caminho do raster, nome da regra) e `regras_por_nome` traz as regras de
+    cada nome. A saída é <pasta_saida>/<subpasta>/<prefixo><nome do arquivo>;
+    com `pasta_base`, as subpastas da entrada são replicadas. Erros por
+    arquivo não abortam o lote.
+    """
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+
+    if not arquivos:
+        raise ValueError("Nenhum raster para reclassificar.")
+    if not pasta_saida:
+        raise ValueError("Selecione a pasta de saída.")
+    if dtype not in RECLASS_DTYPES:
+        raise ValueError(f"Tipo de dado de saída inválido: {dtype}")
+    if not max_workers or max_workers < 1:
+        max_workers = numero_padrao_de_nucleos()
+    pasta_saida_path = Path(pasta_saida)
+    pasta_saida_path.mkdir(parents=True, exist_ok=True)
+
+    # Avisos sobre valores que o tipo de dado de saída não consegue guardar.
+    tipo_saida = np.dtype(RECLASS_DTYPES[dtype][0])
+    nodata_saida = RECLASS_NODATA_NA.get(tipo_saida.name, np.nan) if outros == "NA" else 0
+    for nome_regra in sorted({r for _, r in arquivos}):
+        novos = sorted({r[2] for r in regras_por_nome.get(nome_regra) or []})
+        if np.issubdtype(tipo_saida, np.integer):
+            info = np.iinfo(tipo_saida)
+            fora = [v for v in novos if v < info.min or v > info.max or v != int(v)]
+            if fora:
+                log(f"AVISO: a regra '{nome_regra}' tem Novo_Val que não cabe em {tipo_saida.name} "
+                    f"({', '.join(f'{v:g}' for v in fora[:8])}): escolha outro tipo de dado de saída.")
+        if nodata_saida in novos:
+            log(f"AVISO: na regra '{nome_regra}', Novo_Val = {nodata_saida:g} é também o valor de 'sem dado' "
+                f"da saída; esses pixels serão lidos como sem dado.")
+
+    total = len(arquivos)
+    total_progresso = total * 100
+    if progress_callback:
+        progress_callback(0, total_progresso, "Aguardando início da reclassificação")
+
+    def tarefa(item):
+        caminho, nome_regra = item
+        checar_parada(stop_event)
+        regras = regras_por_nome.get(nome_regra)
+        if not regras:
+            return ("erro", None, f"regra '{nome_regra}' não encontrada ou vazia")
+        try:
+            saida = pasta_saida_path / _subpasta_relativa(caminho, pasta_base) / f"{prefixo}{Path(caminho).name}"
+            reclassificar_raster_arquivo(
+                caminho, regras, str(saida), dtype=dtype, outros=outros, direita=direita,
+                incluir_minimo=incluir_minimo, sobrescrever=sobrescrever, stop_event=stop_event)
+            return ("ok", saida, None)
+        except ProcessamentoInterrompido:
+            raise
+        except Exception as exc:
+            return ("erro", None, str(exc))
+
+    saidas: List[Path] = []
+    erros: List[str] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futuros = {executor.submit(tarefa, item): item for item in arquivos}
+        try:
+            for n, futuro in enumerate(as_completed(futuros), start=1):
+                if stop_event is not None and stop_event.is_set():
+                    raise ProcessamentoInterrompido("Processamento interrompido pelo usuário.")
+                caminho, nome_regra = futuros[futuro]
+                status, saida, erro = futuro.result()
+                nome = Path(caminho).name
+                if status == "ok":
+                    saidas.append(saida)
+                    log(f"[{n}/{total}] {nome} (regra: {nome_regra}) -> OK: {os.path.relpath(saida, pasta_saida_path)}")
+                else:
+                    erros.append(f"{nome}: {erro}")
+                    log(f"[{n}/{total}] {nome} (regra: {nome_regra}) -> ERRO: {erro}")
+                if progress_callback:
+                    progress_callback(n * 100, total_progresso, f"Rasters concluídos: {n}/{total}")
+        except ProcessamentoInterrompido:
+            for f in futuros:
+                f.cancel()
+            raise
+    return {"saidas": saidas, "erros": erros, "total": total}
 
 
 # =============================================================================
@@ -3906,6 +4187,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.aba_reproj = ttk.Frame(notebook)
         self.aba_fundido = ttk.Frame(notebook)
         self.aba_consol = ttk.Frame(notebook)
+        self.aba_reclass = ttk.Frame(notebook)
 
         notebook.add(self.aba_grade, text="1. Grade de pontos")
         notebook.add(self.aba_buffer, text="2. Buffers")
@@ -3915,6 +4197,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         notebook.add(self.aba_reproj, text="6. Reprojeção de rasters")
         notebook.add(self.aba_fundido, text="7. Fundido (memória)")
         notebook.add(self.aba_consol, text="8. Consolidar tabelas")
+        notebook.add(self.aba_reclass, text="9. Reclassificar rasters")
 
         self._montar_aba_grade()
         self._montar_aba_buffer()
@@ -3924,6 +4207,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self._montar_aba_reprojecao()
         self._montar_aba_fundido()
         self._montar_aba_consolidar()
+        self._montar_aba_reclass()
 
     def _adicionar_linha_arquivo(self, frame, label, text_var, comando, row):
         ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=6)
@@ -5039,6 +5323,392 @@ class AplicacaoGradeBuffer(tk.Tk):
             "Concluído",
             f"Rasters reprojetados: {len(resultado['saidas'])}/{resultado['total']}\nErros: {len(resultado['erros'])}",
         ))
+
+    # -------------------------------------------------------------------------
+    # Aba 9: reclassificar rasters por regras (portada do GeoRasterTools)
+    # -------------------------------------------------------------------------
+
+    def _montar_aba_reclass(self):
+        self.pasta_entrada_reclass_var = tk.StringVar()
+        self.pasta_saida_reclass_var = tk.StringVar()
+        self.recursivo_reclass_var = tk.BooleanVar(value=True)
+        self.prefixo_reclass_var = tk.StringVar(value="Reclass_")
+        self.dtype_reclass_var = tk.StringVar(value=rotulo_dtype_reclass("INT1U"))
+        self.outros_reclass_var = tk.StringVar(value="NA (sem valor)")
+        self.intervalo_reclass_var = tk.StringVar(value="Ambos os lados (NA)")
+        self.incluir_minimo_reclass_var = tk.BooleanVar(value=True)
+        self.sobrescrever_reclass_var = tk.BooleanVar(value=True)
+        self.workers_reclass_var = tk.StringVar(value=str(numero_padrao_de_nucleos()))
+        self.regra_ativa_reclass_var = tk.StringVar(value=NOME_REGRA_PADRAO)
+        self.nova_regra_reclass_var = tk.StringVar()
+        self.stop_reclass_event = threading.Event()
+        # Estado: arquivos escaneados ({"Arquivo", "Caminho", "Regra"}) e conjuntos de regras por nome.
+        self.reclass_arquivos: List[Dict[str, str]] = []
+        self.reclass_regras: Dict[str, list] = {NOME_REGRA_PADRAO: regras_reclass_padrao()}
+        self.reclass_regra_ativa = NOME_REGRA_PADRAO
+
+        frame = ttk.Frame(self.aba_reclass, padding=10)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            frame, text="Reclassificar rasters por regras (Val_Min, Val_Max, Novo_Val)",
+            font=("Segoe UI", 12, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 6))
+        self._adicionar_linha_pasta(frame, "Pasta dos rasters de entrada:", self.pasta_entrada_reclass_var, self._acao_selecionar_pasta_entrada_reclass, row=1)
+        self._adicionar_linha_pasta(frame, "Pasta de saída:", self.pasta_saida_reclass_var, self._acao_selecionar_pasta_saida_reclass, row=2)
+
+        corpo = ttk.Frame(frame)
+        corpo.grid(row=3, column=0, columnspan=3, sticky="nsew", padx=6, pady=4)
+        corpo.columnconfigure(1, weight=3)
+        corpo.columnconfigure(2, weight=2)
+        corpo.rowconfigure(0, weight=1)
+        corpo.rowconfigure(1, weight=1)
+
+        # Parâmetros de saída (coluna da esquerda)
+        params = ttk.LabelFrame(corpo, text="Parâmetros de saída", padding=8)
+        params.grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 6))
+        ttk.Label(params, text="Tipo de dado de saída:").pack(anchor="w")
+        ttk.Combobox(params, textvariable=self.dtype_reclass_var, width=26, state="readonly",
+                     values=[rotulo_dtype_reclass(c) for c in RECLASS_DTYPES]).pack(fill="x", pady=2)
+        ttk.Label(params, text="Pixels não mapeados:").pack(anchor="w")
+        ttk.Combobox(params, textvariable=self.outros_reclass_var, state="readonly",
+                     values=list(RECLASS_NAO_MAPEADOS)).pack(fill="x", pady=2)
+        ttk.Label(params, text="Intervalo fechado em:").pack(anchor="w")
+        ttk.Combobox(params, textvariable=self.intervalo_reclass_var, state="readonly",
+                     values=list(RECLASS_INTERVALOS)).pack(fill="x", pady=2)
+        ttk.Checkbutton(params, text="Incluir valor mínimo (include.lowest)",
+                        variable=self.incluir_minimo_reclass_var).pack(anchor="w", pady=2)
+        ttk.Checkbutton(params, text="Sobrescrever arquivos existentes",
+                        variable=self.sobrescrever_reclass_var).pack(anchor="w", pady=2)
+        ttk.Checkbutton(params, text="Ler subpastas (replica a estrutura na saída)",
+                        variable=self.recursivo_reclass_var).pack(anchor="w", pady=2)
+        linha_prefixo = ttk.Frame(params)
+        linha_prefixo.pack(fill="x", pady=2)
+        ttk.Label(linha_prefixo, text="Prefixo do nome de saída:").pack(side="left")
+        ttk.Entry(linha_prefixo, textvariable=self.prefixo_reclass_var, width=10).pack(side="left", padx=4)
+        linha_nucleos = ttk.Frame(params)
+        linha_nucleos.pack(fill="x", pady=2)
+        ttk.Label(linha_nucleos, text="Núcleos:").pack(side="left")
+        ttk.Spinbox(linha_nucleos, from_=1, to=(os.cpu_count() or 4) * 2, width=5,
+                    textvariable=self.workers_reclass_var).pack(side="left", padx=4)
+        ttk.Button(params, text="Escanear arquivos", command=self._acao_escanear_reclass).pack(fill="x", pady=(8, 0))
+
+        # Arquivos escaneados e a regra de cada um
+        arquivos_box = ttk.LabelFrame(corpo, text="Arquivos escaneados (selecione linhas para atribuir regras)", padding=4)
+        arquivos_box.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
+        arquivos_box.columnconfigure(0, weight=1)
+        arquivos_box.rowconfigure(0, weight=1)
+        self.tree_arquivos_reclass = ttk.Treeview(arquivos_box, columns=("Arquivo", "Regra"), show="headings",
+                                                  height=6, selectmode="extended")
+        self.tree_arquivos_reclass.heading("Arquivo", text="Arquivo")
+        self.tree_arquivos_reclass.heading("Regra", text="Regra")
+        self.tree_arquivos_reclass.column("Arquivo", width=320)
+        self.tree_arquivos_reclass.column("Regra", width=90, anchor="center")
+        self.tree_arquivos_reclass.grid(row=0, column=0, sticky="nsew")
+        barra_arquivos = ttk.Scrollbar(arquivos_box, orient="vertical", command=self.tree_arquivos_reclass.yview)
+        barra_arquivos.grid(row=0, column=1, sticky="ns")
+        self.tree_arquivos_reclass.configure(yscrollcommand=barra_arquivos.set)
+
+        # Conjuntos de regras
+        regras_box = ttk.LabelFrame(corpo, text="Conjuntos de regras", padding=6)
+        regras_box.grid(row=0, column=2, sticky="nsew")
+        ttk.Label(regras_box, text="Regra ativa no editor:").pack(anchor="w")
+        self.combo_regra_reclass = ttk.Combobox(regras_box, textvariable=self.regra_ativa_reclass_var,
+                                                values=[NOME_REGRA_PADRAO], state="readonly")
+        self.combo_regra_reclass.pack(fill="x", pady=2)
+        self.combo_regra_reclass.bind("<<ComboboxSelected>>", self._acao_selecionar_regra_reclass)
+        linha_nova = ttk.Frame(regras_box)
+        linha_nova.pack(fill="x", pady=2)
+        ttk.Entry(linha_nova, textvariable=self.nova_regra_reclass_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(linha_nova, text="Criar", width=7, command=self._acao_criar_regra_reclass).pack(side="left", padx=(4, 0))
+        ttk.Button(regras_box, text="Atribuir regra ativa aos selecionados",
+                   command=self._acao_atribuir_selecionados_reclass).pack(fill="x", pady=2)
+        ttk.Button(regras_box, text="Atribuir regra ativa a todos os arquivos",
+                   command=self._acao_atribuir_todos_reclass).pack(fill="x", pady=2)
+        linha_txt = ttk.Frame(regras_box)
+        linha_txt.pack(fill="x", pady=2)
+        ttk.Button(linha_txt, text="Carregar .txt", command=self._acao_carregar_txt_reclass).pack(
+            side="left", fill="x", expand=True, padx=(0, 2))
+        ttk.Button(linha_txt, text="Salvar .txt", command=self._acao_salvar_txt_reclass).pack(
+            side="left", fill="x", expand=True, padx=(2, 0))
+
+        # Editor da regra ativa
+        editor_box = ttk.LabelFrame(corpo, text="Editor de regras", padding=4)
+        editor_box.grid(row=1, column=1, columnspan=2, sticky="nsew", pady=(6, 0))
+        editor_box.columnconfigure(0, weight=1)
+        editor_box.rowconfigure(1, weight=1)
+        cabecalho = ttk.Frame(editor_box)
+        cabecalho.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 2))
+        self.label_editor_reclass = ttk.Label(cabecalho, text=f"EDITOR - {NOME_REGRA_PADRAO}", font=("Segoe UI", 9, "bold"))
+        self.label_editor_reclass.pack(side="left")
+        ttk.Button(cabecalho, text="+ Linha", command=self._acao_adicionar_linha_reclass).pack(side="left", padx=4)
+        ttk.Button(cabecalho, text="- Linha selecionada", command=self._acao_remover_linha_reclass).pack(side="left", padx=4)
+        ttk.Button(cabecalho, text="Salvar regra", command=self._acao_salvar_regra_reclass).pack(side="left", padx=4)
+        ttk.Label(cabecalho, text="Duplo clique em uma célula para editar.", foreground="#555555").pack(side="left", padx=8)
+        self.tree_regras_reclass = ttk.Treeview(editor_box, columns=COLUNAS_REGRA_RECLASS, show="headings", height=6)
+        for coluna in COLUNAS_REGRA_RECLASS:
+            self.tree_regras_reclass.heading(coluna, text=coluna)
+            self.tree_regras_reclass.column(coluna, width=100, anchor="center")
+        self.tree_regras_reclass.grid(row=1, column=0, sticky="nsew")
+        barra_regras = ttk.Scrollbar(editor_box, orient="vertical", command=self.tree_regras_reclass.yview)
+        barra_regras.grid(row=1, column=1, sticky="ns")
+        self.tree_regras_reclass.configure(yscrollcommand=barra_regras.set)
+        self.tree_regras_reclass.bind("<Double-1>", self._acao_editar_celula_reclass)
+
+        self.botao_reclass, self.botao_parar_reclass = self._adicionar_botoes_iniciar_parar(
+            frame,
+            row=4,
+            texto_iniciar="Executar reclassificação",
+            comando_iniciar=lambda: self._executar_thread(self.botao_reclass, self.botao_parar_reclass, self.stop_reclass_event, self._processar_reclass),
+            comando_parar=lambda: self._solicitar_parada(self.stop_reclass_event, self.log_reclass),
+        )
+        self.label_proc_reclass = ttk.Label(frame, text="Processamento: aguardando início")
+        self.label_proc_reclass.grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=(2, 0))
+        self.progress_proc_reclass = ttk.Progressbar(frame, mode="determinate", maximum=100)
+        self.progress_proc_reclass.grid(row=6, column=0, columnspan=3, sticky="ew", padx=6, pady=(2, 6))
+
+        ttk.Label(frame, text="Log do processamento:").grid(row=7, column=0, columnspan=3, sticky="w", padx=6)
+        self.log_reclass = tk.Text(frame, height=7, wrap="word")
+        self.log_reclass.grid(row=8, column=0, columnspan=3, sticky="nsew", padx=6, pady=6)
+        barra = ttk.Scrollbar(frame, orient="vertical", command=self.log_reclass.yview)
+        barra.grid(row=8, column=3, sticky="ns")
+        self.log_reclass.configure(yscrollcommand=barra.set)
+        frame.rowconfigure(3, weight=3)
+        frame.rowconfigure(8, weight=1)
+
+        self._atualizar_editor_reclass()
+
+    def _atualizar_editor_reclass(self):
+        self.label_editor_reclass.config(text=f"EDITOR - {self.reclass_regra_ativa}")
+        tree = self.tree_regras_reclass
+        tree.delete(*tree.get_children())
+        for regra in self.reclass_regras[self.reclass_regra_ativa]:
+            tree.insert("", "end", values=[f"{v:g}" for v in regra])
+
+    def _atualizar_arquivos_reclass(self):
+        tree = self.tree_arquivos_reclass
+        tree.delete(*tree.get_children())
+        for arquivo in self.reclass_arquivos:
+            tree.insert("", "end", values=(arquivo["Arquivo"], arquivo["Regra"]))
+
+    def _linhas_editor_reclass(self) -> List[tuple]:
+        tree = self.tree_regras_reclass
+        return [tuple(float(v) for v in tree.item(item, "values")) for item in tree.get_children()]
+
+    def _ativar_regra_reclass(self, nome: str):
+        self.reclass_regra_ativa = nome
+        self.regra_ativa_reclass_var.set(nome)
+        self.combo_regra_reclass.config(values=list(self.reclass_regras))
+        self._atualizar_editor_reclass()
+
+    def _acao_selecionar_pasta_entrada_reclass(self):
+        pasta = self._selecionar_pasta("Selecione a pasta com os rasters para reclassificar")
+        if not pasta:
+            return
+        self.pasta_entrada_reclass_var.set(pasta)
+        if not self.pasta_saida_reclass_var.get():
+            # Pasta irmã da entrada: fora dela, para a saída não ser relida como entrada.
+            p = Path(pasta)
+            self.pasta_saida_reclass_var.set(str(p.parent / f"{p.name}_reclassificado"))
+        self._acao_escanear_reclass()
+
+    def _acao_selecionar_pasta_saida_reclass(self):
+        pasta = self._selecionar_pasta("Selecione a pasta de saída dos rasters reclassificados")
+        if pasta:
+            self.pasta_saida_reclass_var.set(pasta)
+
+    def _acao_escanear_reclass(self):
+        pasta = self.pasta_entrada_reclass_var.get().strip()
+        if not pasta:
+            messagebox.showwarning("Aviso", "Selecione a pasta de entrada.")
+            return
+        try:
+            rasters = listar_rasters_pasta(pasta, recursivo=bool(self.recursivo_reclass_var.get()))
+        except ValueError:
+            rasters = []
+        # Não relê como entrada o que já estiver dentro da pasta de saída.
+        saida = self.pasta_saida_reclass_var.get().strip()
+        if saida:
+            saida_abs = os.path.normcase(os.path.abspath(saida)) + os.sep
+            rasters = [r for r in rasters if not os.path.normcase(os.path.abspath(r)).startswith(saida_abs)]
+        # Ao reescanear, cada arquivo mantém a regra que já tinha.
+        anteriores = {a["Caminho"]: a["Regra"] for a in self.reclass_arquivos if a["Regra"] in self.reclass_regras}
+        self.reclass_arquivos = [
+            {"Arquivo": os.path.relpath(r, pasta), "Caminho": str(r), "Regra": anteriores.get(str(r), NOME_REGRA_PADRAO)}
+            for r in rasters
+        ]
+        self._atualizar_arquivos_reclass()
+        if not rasters:
+            messagebox.showwarning("Aviso", "Nenhum .tif/.tiff encontrado na pasta de entrada.")
+            return
+        n_pastas = len({str(r.parent) for r in rasters})
+        self._log(self.log_reclass, f"=== ESCANEADO: {len(rasters)} arquivo(s) em {n_pastas} pasta(s) ===")
+        self._log(self.log_reclass, f"Arquivos novos recebem a regra '{NOME_REGRA_PADRAO}'. "
+                                    "Selecione arquivos e atribua outras regras se necessário.")
+
+    def _acao_selecionar_regra_reclass(self, _evento=None):
+        nome = self.regra_ativa_reclass_var.get()
+        if nome in self.reclass_regras:
+            self.reclass_regra_ativa = nome
+            self._atualizar_editor_reclass()
+
+    def _acao_criar_regra_reclass(self):
+        nome = self.nova_regra_reclass_var.get().strip()
+        if not nome:
+            messagebox.showwarning("Aviso", "Digite um nome para a nova regra.")
+            return
+        if nome not in self.reclass_regras:
+            self.reclass_regras[nome] = regras_reclass_padrao()
+        self._ativar_regra_reclass(nome)
+        self.nova_regra_reclass_var.set("")
+        messagebox.showinfo("Regra criada", f"Regra criada: {nome}")
+
+    def _acao_atribuir_selecionados_reclass(self):
+        tree = self.tree_arquivos_reclass
+        selecao = tree.selection()
+        if not selecao:
+            messagebox.showwarning("Aviso", "Selecione arquivos na tabela antes de atribuir.")
+            return
+        for item in selecao:
+            self.reclass_arquivos[tree.index(item)]["Regra"] = self.reclass_regra_ativa
+        self._atualizar_arquivos_reclass()
+        messagebox.showinfo("Atribuído", f"Regra '{self.reclass_regra_ativa}' atribuída a {len(selecao)} arquivo(s).")
+
+    def _acao_atribuir_todos_reclass(self):
+        if not self.reclass_arquivos:
+            return
+        for arquivo in self.reclass_arquivos:
+            arquivo["Regra"] = self.reclass_regra_ativa
+        self._atualizar_arquivos_reclass()
+        messagebox.showinfo("Atribuído", f"Regra '{self.reclass_regra_ativa}' atribuída a todos os "
+                                         f"{len(self.reclass_arquivos)} arquivo(s).")
+
+    def _acao_editar_celula_reclass(self, evento):
+        """Duplo clique em uma célula do editor de regras: abre um campo de edição sobre ela."""
+        tree = self.tree_regras_reclass
+        if tree.identify("region", evento.x, evento.y) != "cell":
+            return
+        linha, coluna = tree.identify_row(evento.y), tree.identify_column(evento.x)
+        caixa = tree.bbox(linha, coluna) if linha else None
+        if not caixa:
+            return
+        nome_coluna = tree["columns"][int(coluna.replace("#", "")) - 1]
+        editor = ttk.Entry(tree)
+        editor.insert(0, tree.set(linha, nome_coluna))
+        editor.select_range(0, "end")
+        editor.place(x=caixa[0], y=caixa[1], width=caixa[2], height=caixa[3])
+        editor.focus_set()
+
+        def confirmar(_evento=None):
+            if not editor.winfo_exists():
+                return
+            texto = editor.get().strip().replace(",", ".")
+            editor.destroy()
+            try:
+                valor = float(texto)
+            except ValueError:
+                messagebox.showwarning("Aviso", "Valor inválido. Use apenas números.")
+                return
+            tree.set(linha, nome_coluna, f"{valor:g}")
+
+        editor.bind("<Return>", confirmar)
+        editor.bind("<FocusOut>", confirmar)
+        editor.bind("<Escape>", lambda _evento: editor.destroy())
+
+    def _acao_adicionar_linha_reclass(self):
+        self.tree_regras_reclass.insert("", "end", values=(0, 0, 0))
+
+    def _acao_remover_linha_reclass(self):
+        tree = self.tree_regras_reclass
+        selecao = tree.selection()
+        if not selecao:
+            messagebox.showwarning("Aviso", "Selecione uma linha para remover.")
+            return
+        if len(tree.get_children()) - len(selecao) < 1:
+            messagebox.showwarning("Aviso", "A regra deve ter ao menos uma linha.")
+            return
+        tree.delete(*selecao)
+
+    def _acao_salvar_regra_reclass(self):
+        linhas = self._linhas_editor_reclass()
+        self.reclass_regras[self.reclass_regra_ativa] = linhas
+        messagebox.showinfo("Salvo", f"Regra '{self.reclass_regra_ativa}' salva com {len(linhas)} linha(s).")
+
+    def _acao_carregar_txt_reclass(self):
+        caminho = filedialog.askopenfilename(title="Selecionar arquivo de regras",
+                                             filetypes=[("Texto", "*.txt"), ("Todos os arquivos", "*.*")])
+        if not caminho:
+            return
+        try:
+            regras = ler_regras_reclass_txt(caminho)
+        except OSError as exc:
+            messagebox.showerror("Erro ao ler", str(exc))
+            return
+        if not regras:
+            messagebox.showwarning("Aviso", "Nenhuma regra válida encontrada no arquivo.")
+            return
+        nome = Path(caminho).stem
+        self.reclass_regras[nome] = regras
+        self._ativar_regra_reclass(nome)
+        messagebox.showinfo("Carregado", f"{len(regras)} regra(s) carregada(s) de '{Path(caminho).name}' como '{nome}'.")
+
+    def _acao_salvar_txt_reclass(self):
+        caminho = filedialog.asksaveasfilename(title="Salvar regras em arquivo", defaultextension=".txt",
+                                               filetypes=[("Texto", "*.txt")])
+        if not caminho:
+            return
+        try:
+            salvar_regras_reclass_txt(self._linhas_editor_reclass(), caminho, nome_regra=self.reclass_regra_ativa)
+            messagebox.showinfo("Salvo", f"Regras salvas em: {Path(caminho).name}")
+        except Exception as exc:
+            messagebox.showerror("Erro ao salvar", str(exc))
+
+    def _processar_reclass(self):
+        self.log_reclass.after(0, lambda: self._limpar_log(self.log_reclass))
+        self._resetar_barras([
+            (self.progress_proc_reclass, self.label_proc_reclass, "Processamento: aguardando início"),
+        ])
+        if not self.reclass_arquivos:
+            raise ValueError("Escaneie os arquivos primeiro (selecione a pasta de entrada).")
+        pasta_entrada = self.pasta_entrada_reclass_var.get().strip()
+        pasta_saida = self.pasta_saida_reclass_var.get().strip()
+        if not pasta_saida:
+            raise ValueError("Selecione a pasta de saída.")
+        prefixo = self.prefixo_reclass_var.get().strip()
+        if re.search(r'[\\/:*?"<>|]', prefixo):
+            raise ValueError('O prefixo não pode conter \\ / : * ? " < > |')
+        if not prefixo and os.path.normcase(os.path.abspath(pasta_saida)) == os.path.normcase(os.path.abspath(pasta_entrada)):
+            raise ValueError("Com o prefixo vazio, a pasta de saída deve ser diferente da pasta de entrada.")
+
+        # O que está no editor vale para a regra ativa, mesmo sem clicar em "Salvar regra".
+        self.reclass_regras[self.reclass_regra_ativa] = self._linhas_editor_reclass()
+        dtype = self.dtype_reclass_var.get().split("-")[0].strip().upper()
+        outros = RECLASS_NAO_MAPEADOS.get(self.outros_reclass_var.get(), "NA")
+        arquivos = [(a["Caminho"], a["Regra"]) for a in self.reclass_arquivos]
+
+        self._log(self.log_reclass, "=== RECLASSIFICAÇÃO INICIADA ===")
+        self._log(self.log_reclass, f"Arquivos: {len(arquivos)} | Tipo de dado: {self.dtype_reclass_var.get()} | "
+                                    f"Não mapeados: {outros} | Intervalo: {self.intervalo_reclass_var.get()}")
+        resultado = reclassificar_rasters_lote(
+            arquivos=arquivos,
+            regras_por_nome=dict(self.reclass_regras),
+            pasta_saida=pasta_saida,
+            dtype=dtype,
+            outros=outros,
+            direita=RECLASS_INTERVALOS.get(self.intervalo_reclass_var.get()),
+            incluir_minimo=bool(self.incluir_minimo_reclass_var.get()),
+            sobrescrever=bool(self.sobrescrever_reclass_var.get()),
+            prefixo=prefixo,
+            pasta_base=pasta_entrada,
+            max_workers=self._ler_workers(self.workers_reclass_var),
+            log_callback=lambda msg: self._log(self.log_reclass, msg),
+            progress_callback=lambda valor, maximo, msg: self._atualizar_barra_processamento(self.progress_proc_reclass, self.label_proc_reclass, valor, maximo, msg),
+            stop_event=self.stop_reclass_event,
+        )
+        n_ok, n_erro = len(resultado["saidas"]), len(resultado["erros"])
+        self._log(self.log_reclass, f"=== CONCLUÍDO | OK: {n_ok} | ERRO: {n_erro} ===")
+        self.log_reclass.after(0, lambda: messagebox.showinfo("Concluído", f"Reclassificação - OK: {n_ok} | Erros: {n_erro}"))
 
     # -------------------------------------------------------------------------
     # Aba 7: fundido em memória (recorte + métricas, sem salvar recorte)
