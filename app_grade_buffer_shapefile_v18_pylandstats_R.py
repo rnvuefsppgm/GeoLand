@@ -4188,6 +4188,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.aba_fundido = ttk.Frame(notebook)
         self.aba_consol = ttk.Frame(notebook)
         self.aba_reclass = ttk.Frame(notebook)
+        self.aba_graficos = ttk.Frame(notebook)
 
         notebook.add(self.aba_grade, text="1. Grade de pontos")
         notebook.add(self.aba_buffer, text="2. Buffers")
@@ -4198,6 +4199,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         notebook.add(self.aba_fundido, text="7. Fundido (memória)")
         notebook.add(self.aba_consol, text="8. Consolidar tabelas")
         notebook.add(self.aba_reclass, text="9. Reclassificar rasters")
+        notebook.add(self.aba_graficos, text="10. Gráficos")
 
         self._montar_aba_grade()
         self._montar_aba_buffer()
@@ -4208,6 +4210,9 @@ class AplicacaoGradeBuffer(tk.Tk):
         self._montar_aba_fundido()
         self._montar_aba_consolidar()
         self._montar_aba_reclass()
+        # Aba 10 (gráficos): fica em um módulo próprio, geoland_graficos.py.
+        from geoland_graficos import AbaGraficos
+        self.graficos = AbaGraficos(self, self.aba_graficos)
 
     def _adicionar_linha_arquivo(self, frame, label, text_var, comando, row):
         ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=6)

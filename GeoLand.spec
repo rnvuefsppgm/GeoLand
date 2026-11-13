@@ -91,10 +91,17 @@ except Exception:
     RPY2_AVAILABLE = False
 
 hidden_imports = [
-    # main.py roda este modulo via runpy.run_module (sem "import" estatico),
-    # entao precisa ser listado explicitamente para o PyInstaller incluir
-    # o bytecode dele no pacote final.
+    # main.py importa este modulo pelo nome (importlib, sem "import"
+    # estatico), entao ele precisa ser listado explicitamente para o
+    # PyInstaller incluir o bytecode dele no pacote final.
     "app_grade_buffer_shapefile_v18_pylandstats_R",
+    # Aba 10 (graficos): modulo proprio, nomes das metricas e os formatos
+    # de saida do matplotlib (PNG, PDF e SVG), carregados sob demanda.
+    "geoland_graficos",
+    "nomes_metricas_lsm",
+    "matplotlib.backends.backend_agg",
+    "matplotlib.backends.backend_pdf",
+    "matplotlib.backends.backend_svg",
 ]
 hidden_imports += collect_submodules("rasterio")
 hidden_imports += collect_submodules("pyogrio")

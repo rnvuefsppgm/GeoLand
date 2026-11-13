@@ -49,7 +49,9 @@ Há ainda `GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida>`,
 que abre a janela e aciona sozinho os botões das abas 6, 4 e 9 (leitura de
 subpastas, estrutura replicada, verificação de projeção, reprojeção antes
 do cálculo e reclassificação) com uma amostra dos rasters, gravando
-`relatorio_teste_gui.txt`.
+`relatorio_teste_gui.txt`. E `GeoLand_V1.exe --teste-graficos <tabela.csv>
+<pasta_saida>` faz o mesmo com a aba 10 (leitura da tabela, dicionário de
+cores, lote em PNG/PDF/SVG e uma segunda tabela genérica).
 
 ## Tutorial de uso
 
@@ -167,11 +169,67 @@ Com "NA (sem valor)", os pixels sem dado e os não mapeados recebem o valor
 de sem-dado do tipo escolhido (255 em 8 bits). A aba 4 continua lendo o
 ano do nome do arquivo mesmo com o prefixo `Reclass_`.
 
+### Aba 10 — Gráficos
+
+Gera gráficos de linhas e pontos no padrão visual do ggplot2, um a um ou em
+lote, a partir de qualquer tabela (CSV, TXT ou Parquet). Ao selecionar a
+tabela, o aplicativo lê o arquivo e cria os campos da aba sozinho.
+
+![Exemplo de gráfico gerado pela aba 10 (dados fictícios)](exemplos/grafico_exemplo.png)
+
+**Como a tabela é entendida.** Cada coluna recebe um papel:
+
+| Papel | O que é | Tabela de métricas do GeoLand | Outra tabela (exemplo) |
+|---|---|---|---|
+| Eixo X | a sequência do gráfico | `year` | `Ano` |
+| Linhas | o que separa as linhas | `class_val` (classes) | `Cultura` |
+| Um gráfico para cada | o que identifica cada gráfico | `Buffer` + `Diâmetro` | `Municipio` |
+| Métricas (eixo Y) | colunas numéricas; um gráfico por métrica | `ca`, `np`, `enn_mn`... | `Produtividade` |
+| Filtros | valores de cada coluna de categoria | `level`, `Buffer`, `class_val`... | `Municipio`, `Cultura` |
+
+Nas tabelas do GeoLand, `Buffer` e `Diâmetro` são criados a partir do nome
+do raster (`clip_id_<ID>_diam_<DIAM>_<ANO>`). O separador (vírgula, ponto e
+vírgula ou tab), a vírgula decimal e a codificação do CSV são detectados.
+Os papéis sugeridos podem ser trocados nas caixas de seleção.
+
+1. Selecione a **tabela de dados** e a **pasta de saída**. O log mostra a
+   estrutura encontrada e o primeiro gráfico aparece na pré-visualização.
+2. Em **Estrutura**, confira o eixo X, as linhas e as colunas de "um gráfico
+   para cada combinação de". Desmarcar `Buffer`, por exemplo, gera um
+   gráfico por diâmetro com a média de todos os buffers.
+3. Em **Métricas**, marque as métricas desejadas; em **Filtros**, escolha a
+   coluna e desmarque os valores que não devem entrar (buffers, classes,
+   anos...). O rodapé informa quantos gráficos serão gerados.
+4. Em **Aparência**, escolha o tema (cinza do ggplot2, branco com grade ou
+   clássico), a posição da legenda, os formatos (PNG, PDF, SVG), o tamanho
+   em centímetros, a fonte e o DPI. Os textos aceitam `{metrica}`, `{sigla}`
+   e `{painel}`: por exemplo, eixo Y `{metrica} (ha)`.
+5. **Pré-visualizar** mostra o gráfico escolhido em "Gráfico individual" e
+   **Salvar este gráfico** grava só ele.
+6. **Gerar TODOS os gráficos selecionados** grava
+   `<pasta de saída>\<métrica>\<métrica>__Buffer-<ID>_Diametro-<DIAM>.png`.
+
+**Cores e nomes das classes.** Se houver um arquivo `cores.txt` na pasta da
+tabela, ele é lido automaticamente; cada linha tem `valor, "#rrggbb", nome`
+(por exemplo `3, "#1f8d49", Formação Florestal`). **Escolher cores...** abre
+o dicionário de cores: uma linha por classe, com duplo clique para abrir o
+seletor de cores, edição do nome da legenda, preenchimento por paleta
+(ggplot2, Viridis, Turbo, Espectral...) e os botões **Salvar .txt** e
+**Carregar .txt**. Sem dicionário, as cores são as do ggplot2.
+
+A linha de cada classe é interrompida nos anos em que a classe não tem
+valor; marque **Ligar lacunas** para unir os pontos. As siglas do
+landscapemetrics aparecem com o nome por extenso no eixo Y, como
+`Number of patches (NP)`.
+
 ## Estrutura do repositório
 
 ```
 main.py                                          Ponto de entrada; configura o R embutido
 app_grade_buffer_shapefile_v18_pylandstats_R.py  Interface e processamento
+geoland_graficos.py                              Aba 10: leitura de tabelas e gráficos
+nomes_metricas_lsm.py                            Nomes das métricas do landscapemetrics (gerado)
+exemplos/grafico_exemplo.png                     Figura de exemplo (dados fictícios)
 GeoLand.spec                                     Especificação do PyInstaller
 requirements.txt                                 Dependências Python
 montar_R_portatil.ps1                            Monta a pasta R_portable (R + pacotes)

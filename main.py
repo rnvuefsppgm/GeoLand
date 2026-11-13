@@ -28,6 +28,7 @@ Diagnosticos sem interface (gravam um relatorio que termina em RESULTADO):
     GeoLand_V1.exe --teste-motores relatorio.txt
     GeoLand_V1.exe --teste-metricas <pasta_rasters> <pasta_saida> [nucleos]
     GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida> [por_subpasta]
+    GeoLand_V1.exe --teste-graficos <tabela.csv> <pasta_saida>
 """
 
 from __future__ import annotations
@@ -402,6 +403,211 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
     return 0 if not falhas else 1
 
 
+def teste_graficos(tabela: str, pasta_saida: str) -> int:
+    """Teste da aba 10 (Graficos) pela propria interface, sem cliques manuais:
+
+        GeoLand_V1.exe --teste-graficos <tabela.csv> <pasta_saida>
+
+    Le a tabela pelos controles da aba e confere os campos criados
+    automaticamente; usa filtros; edita o dicionario de cores (o seletor de
+    cores e trocado por uma cor fixa), salva e recarrega o .txt; gera um lote
+    pequeno em PNG, PDF e SVG; salva um grafico individual; e repete com uma
+    tabela generica (ponto e virgula, virgula decimal, outros nomes de
+    coluna). Grava relatorio_teste_graficos.txt em `pasta_saida`.
+    """
+    import re
+    import threading
+    import time
+    from tkinter import colorchooser, filedialog, messagebox
+
+    saida = Path(pasta_saida)
+    saida.mkdir(parents=True, exist_ok=True)
+    linhas: list = []
+    falhas: list = []
+    dialogos: list = []
+
+    def conferir(nome, condicao, detalhe=""):
+        linhas.append("%s: %s | %s" % (nome, "OK" if condicao else "FALHA", detalhe))
+        if not condicao:
+            falhas.append(nome)
+
+    try:
+        app = importlib.import_module(MODULE_NAME)
+        for nome in ("showinfo", "showwarning", "showerror"):
+            setattr(messagebox, nome, lambda titulo="", msg="", _n=nome, **k: dialogos.append(
+                "%s: %s" % (_n, str(msg).replace("\n", " / "))))
+        janela = app.AplicacaoGradeBuffer()
+        aba = janela.graficos
+
+        def na_janela(funcao):
+            """Executa `funcao` na thread da interface e devolve o resultado."""
+            feito, caixa = threading.Event(), {}
+
+            def rodar():
+                try:
+                    caixa["r"] = funcao()
+                except Exception:  # noqa: BLE001
+                    caixa["e"] = traceback.format_exc()
+                finally:
+                    feito.set()
+
+            janela.after(0, rodar)
+            feito.wait(300)
+            if "e" in caixa:
+                raise RuntimeError(caixa["e"])
+            return caixa.get("r")
+
+        def acionar(botao, metodo, limite=3600):
+            """Clica no botao e espera o processamento (em outra thread) terminar."""
+            fim, original = threading.Event(), getattr(aba, metodo)
+
+            def embrulho():
+                try:
+                    original()
+                finally:
+                    fim.set()
+
+            setattr(aba, metodo, embrulho)
+            try:
+                for _ in range(100):
+                    if str(botao.cget("state")) != "disabled":
+                        break
+                    time.sleep(0.1)
+                botao.invoke()
+                fim.wait(limite)
+            finally:
+                delattr(aba, metodo)
+            time.sleep(1.0)
+
+        def resumo_do_lote():
+            achado = re.search(r"Gráficos gerados: (\d+) de (\d+) \| sem dados: (\d+)", aba.log.get("1.0", "end"))
+            return tuple(int(v) for v in achado.groups()) if achado else (0, 0, 0)
+
+        def roteiro():
+            try:
+                # 1) Tabela de exemplo: leitura e campos automaticos.
+                na_janela(lambda: (janela.aba_graficos.master.select(janela.aba_graficos),
+                                   aba.tabela_var.set(tabela), aba.saida_var.set(str(saida / "lote"))))
+                acionar(aba.botao_carregar, "_ler_e_estruturar")
+                est = aba.estrutura
+                conferir("Leitura e campos automaticos", aba.df is not None and bool(est.x) and len(est.metricas) > 0,
+                         "%d linhas | X=%s | linhas=%s | um grafico por=%s | metricas=%d | filtros=%s" % (
+                             0 if aba.df is None else len(aba.df), est.x, est.serie, "+".join(est.painel),
+                             len(est.metricas), ",".join(str(c) for c in aba.filtros)))
+                tem_cores = (Path(tabela).parent / "cores.txt").is_file()
+                conferir("Dicionario de cores lido da pasta da tabela", bool(aba.legenda) == tem_cores,
+                         "%d valores" % len(aba.legenda))
+                imagem = aba._imagem_previa
+                conferir("Pre-visualizacao apos a leitura", imagem is not None and imagem.width() > 200,
+                         "sem imagem" if imagem is None else "%dx%d px" % (imagem.width(), imagem.height()))
+
+                # 2) Selecao: 3 metricas e, pelo filtro, 2 valores do primeiro campo de "um grafico por".
+                metricas = aba.lista_metricas.itens()[:3]
+
+                def selecionar():
+                    aba.lista_metricas.marcar(metricas)
+                    if est.painel:
+                        aba.definir_filtro(est.painel[0], aba._valores_dim[est.painel[0]][:2])
+                    aba.pdf_var.set(True)
+                    aba.svg_var.set(True)
+                    return len(aba._combos_previa)
+
+                esperado = na_janela(selecionar) * len(metricas)
+
+                # 3) Dicionario de cores: paleta, escolher uma cor, salvar e recarregar o .txt.
+                dicionario = saida / "dicionario_cores.txt"
+                colorchooser.askcolor = lambda **k: ((18, 52, 86), "#123456")
+                filedialog.asksaveasfilename = lambda **k: str(dicionario)
+                filedialog.askopenfilename = lambda **k: str(dicionario)
+
+                def cores():
+                    dialogo = aba.abrir_dialogo_cores()
+                    chaves = list(dialogo._chaves)
+                    dialogo.paleta_var.set("Viridis")
+                    dialogo.aplicar_paleta()
+                    dialogo.tree.selection_set("0")
+                    dialogo.escolher_cor()
+                    dialogo.salvar()
+                    aba.legenda = {}  # esquece tudo e recarrega do arquivo salvo
+                    dialogo.carregar()
+                    usadas = aba.plano().cores
+                    dialogo.destroy()
+                    return chaves, usadas
+
+                chaves, usadas = na_janela(cores)
+                conferir("Dicionario de cores: escolher, salvar e carregar",
+                         bool(chaves) and usadas.get(chaves[0]) == "#123456" and dicionario.is_file()
+                         and len({usadas[k] for k in chaves}) == len(chaves),
+                         "%d classes com cores distintas | cor escolhida para %s: %s" % (
+                             len(chaves), chaves[0] if chaves else "-", usadas.get(chaves[0]) if chaves else "-"))
+
+                # 4) Botao "Gerar TODOS os graficos".
+                acionar(aba.botao_gerar, "_gerar_todos")
+                gerados, total, sem_dados = resumo_do_lote()
+                arquivos = [p for p in (saida / "lote").rglob("*") if p.is_file()]
+                pngs = [p for p in arquivos if p.suffix == ".png"]
+                validos = all(p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and p.stat().st_size > 15000 for p in pngs)
+                largura = int.from_bytes(pngs[0].read_bytes()[16:20], "big") if pngs else 0
+                conferir("Lote de graficos (PNG, PDF e SVG)",
+                         gerados > 0 and total == esperado and gerados + sem_dados == total and len(pngs) == gerados
+                         and len(arquivos) == 3 * gerados and validos,
+                         "%d graficos de %d previstos (%d sem dados) x 3 formatos | PNG com %d px de largura" % (
+                             gerados, total, sem_dados, largura))
+
+                # 5) Grafico individual (o da pre-visualizacao).
+                def individual():
+                    aba.pdf_var.set(False)
+                    aba.svg_var.set(False)
+                    aba.saida_var.set(str(saida / "individual"))
+                    aba.salvar_individual()
+
+                na_janela(individual)
+                conferir("Grafico individual salvo", len(list((saida / "individual").rglob("*.png"))) == 1,
+                         "%d arquivo(s)" % len(list((saida / "individual").rglob("*.*"))))
+
+                # 6) Outra tabela: ponto e virgula, virgula decimal e nomes de coluna diferentes.
+                generica = saida / "tabela_generica.csv"
+                texto = ["Municipio;Ano;Cultura;Produtividade;Area_plantada"]
+                for i, municipio in enumerate(("Ilheus", "Una", "Canavieiras")):
+                    for j, cultura in enumerate(("Cacau", "Banana", "Mandioca")):
+                        for ano in range(2010, 2024):
+                            texto.append("%s;%d;%s;%s;%s" % (
+                                municipio, ano, cultura, ("%.1f" % (300 + 90 * i + 60 * j + 7.5 * (ano - 2010))).replace(".", ","),
+                                ("%.2f" % (5 + 3 * i + 2 * j + 0.4 * (ano - 2010))).replace(".", ",")))
+                generica.write_text("\n".join(texto), encoding="utf-8")
+                na_janela(lambda: (aba.tabela_var.set(str(generica)), aba.saida_var.set(str(saida / "generica")),
+                                   aba.legenda_var.set("")))
+                acionar(aba.botao_carregar, "_ler_e_estruturar")
+                est = aba.estrutura
+                conferir("Tabela generica: campos automaticos",
+                         est.x == "Ano" and est.serie == "Cultura" and est.painel == ["Municipio"]
+                         and est.metricas == ["Produtividade", "Area_plantada"],
+                         "X=%s | linhas=%s | um grafico por=%s | metricas=%s" % (
+                             est.x, est.serie, "+".join(est.painel), ",".join(est.metricas)))
+                na_janela(lambda: (aba.lista_metricas.marcar_todos(), aba.tema_var.set("Branco com grade (theme_bw)"),
+                                   aba.posicao_legenda_var.set("Abaixo"), aba.virgula_var.set(True)))
+                acionar(aba.botao_gerar, "_gerar_todos")
+                gerados, total, _sem = resumo_do_lote()
+                conferir("Tabela generica: lote", gerados == total == 6
+                         and len(list((saida / "generica").rglob("*.png"))) == 6, "%d de %d graficos" % (gerados, total))
+            except Exception:  # noqa: BLE001
+                falhas.append("roteiro")
+                linhas.append(traceback.format_exc())
+            finally:
+                janela.after(0, janela.destroy)
+
+        janela.after(500, lambda: threading.Thread(target=roteiro, daemon=True).start())
+        janela.mainloop()
+        conferir("Dialogos de erro", not any(d.startswith("showerror") for d in dialogos), "%d dialogo(s)" % len(dialogos))
+        linhas += ["  dialogo %s" % d[:200] for d in dialogos if d.startswith("showerror")]
+    except Exception:  # noqa: BLE001
+        falhas.append("teste")
+        linhas.append(traceback.format_exc())
+    linhas.append("RESULTADO: %s" % ("OK" if not falhas else "FALHA"))
+    (saida / "relatorio_teste_graficos.txt").write_text("\n".join(linhas), encoding="utf-8")
+    return 0 if not falhas else 1
+
+
 def main() -> int:
     # Precisa vir antes de qualquer import do rpy2 e antes de criar processos
     # filhos (que herdam estas variaveis de ambiente).
@@ -419,6 +625,8 @@ def main() -> int:
         return autoteste_motores(sys.argv[2])
     if len(sys.argv) in (4, 5) and sys.argv[1] == "--teste-metricas":
         return teste_metricas(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) == 5 else None)
+    if len(sys.argv) == 4 and sys.argv[1] == "--teste-graficos":
+        return teste_graficos(sys.argv[2], sys.argv[3])
     if len(sys.argv) in (4, 5) and sys.argv[1] == "--teste-gui":
         return teste_gui(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) == 5 else 3)
     try:
