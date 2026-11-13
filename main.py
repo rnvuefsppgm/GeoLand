@@ -128,11 +128,11 @@ def autoteste_motores(arquivo_saida: str) -> int:
 
 
 def teste_metricas(pasta_rasters: str, pasta_saida: str, nucleos: int | None = None) -> int:
-    """Teste sem interface da aba 4 (Metricas), com dados reais:
+    """Teste sem interface da aba 6 (Metricas), com dados reais:
 
         GeoLand_V1.exe --teste-metricas <pasta_rasters> <pasta_saida> [nucleos]
 
-    Chama as mesmas funcoes do botao da aba 4, com os dois motores, os tres
+    Chama as mesmas funcoes do botao da aba 6, com os dois motores, os tres
     niveis, todas as metricas (botao "Todas"), vizinhanca 8 e subpastas, em
     paralelo. Grava os CSVs e o arquivo relatorio_teste_metricas.txt em
     `pasta_saida`. Falha se algum motor nao processar todos os rasters ou se
@@ -195,17 +195,17 @@ def teste_metricas(pasta_rasters: str, pasta_saida: str, nucleos: int | None = N
 
 
 def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
-    """Teste das abas 6 e 4 pela propria interface, sem cliques manuais:
+    """Teste das abas 4 e 6 pela propria interface, sem cliques manuais:
 
         GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida> [rasters_por_subpasta]
 
     Copia uma amostra dos rasters (mantendo as subpastas), abre a janela,
     troca os dialogos por respostas automaticas e aciona os botoes:
-    aba 6 - seleciona a PASTA da amostra e reprojeta para graus (EPSG 4674),
+    aba 4 - seleciona a PASTA da amostra e reprojeta para graus (EPSG 4674),
     conferindo a leitura das subpastas e a estrutura replicada na saida;
-    aba 4 - "Verificar projecao (metros)" e, com "Reprojetar para metros"
+    aba 6 - "Verificar projecao (metros)" e, com "Reprojetar para metros"
     marcado, o calculo com os dois motores;
-    aba 9 - escaneia a pasta, cria/salva/carrega regras e reclassifica,
+    aba 5 - escaneia a pasta, cria/salva/carrega regras e reclassifica,
     conferindo o resultado pixel a pixel. Grava relatorio_teste_gui.txt.
     """
     import shutil
@@ -286,11 +286,11 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
 
         def roteiro():
             try:
-                # Aba 6: selecionar a PASTA (dialogo trocado) e reprojetar para graus.
+                # Aba 4: selecionar a PASTA (dialogo trocado) e reprojetar para graus.
                 graus = saida / "aba6_graus"
                 janela._selecionar_pasta = lambda *a, **k: str(amostra)
                 janela._acao_selecionar_rasters_reproj()
-                conferir("Aba 6 - pasta e subpastas carregadas", len(janela.rasters_reproj_lista) == n,
+                conferir("Aba 4 - pasta e subpastas carregadas", len(janela.rasters_reproj_lista) == n,
                          "%d rasters | saida sugerida: %s | EPSG sugerido: %s" % (
                              len(janela.rasters_reproj_lista), janela.pasta_saida_reproj_var.get(),
                              janela.epsg_reproj_var.get()))
@@ -298,32 +298,33 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 janela.epsg_reproj_var.set("4674")
                 janela.sufixo_epsg_reproj_var.set(False)
                 acionar(janela.botao_reproj, "_processar_reprojecao")
-                conferir("Aba 6 - subpastas replicadas na saida", n > 0 and estrutura(graus) == estrutura(amostra),
+                conferir("Aba 4 - subpastas replicadas na saida", n > 0 and estrutura(graus) == estrutura(amostra),
                          "%d rasters em %d pasta(s)" % (len(estrutura(graus)),
                                                         len({p.parent for p in graus.rglob("*.tif")})))
 
-                # Aba 4: botao de verificacao, com rasters em graus e com rasters em metros.
+                # Aba 6: botao de verificacao, com rasters em graus e com rasters em metros.
                 csvs = saida / "aba4_csv"
                 janela.pasta_saida_metricas_var.set(str(csvs))
                 for pasta, esperado in ((graus, n), (amostra, 0)):
                     janela.pasta_rasters_metricas_var.set(str(pasta))
                     acionar(janela.botao_verificar_proj, "_verificar_projecao_metricas")
                     log = janela.log_metricas.get("1.0", "end")
-                    conferir("Aba 4 - Verificar projecao (%s)" % pasta.name,
+                    conferir("Aba 6 - Verificar projecao (%s)" % pasta.name,
                              log.count("NÃO está em metros:") == esperado,
                              "; ".join(l for l in log.splitlines() if l.startswith("Rasters verificados")))
 
-                # Aba 4: reprojetar para metros antes do calculo, com os dois motores.
+                # Aba 6: reprojetar para metros antes do calculo, com os dois motores.
                 janela.pasta_rasters_metricas_var.set(str(graus))
                 janela.reprojetar_metricas_var.set(True)
                 janela.engine_pls_var.set(True)
                 janela.engine_r_var.set(True)
+                janela.calcular_iep_var.set(True)
                 janela._atualizar_estado_metricas()
                 acionar(janela.botao_metricas, "_processar_metricas")
                 metros = csvs / app.PASTA_REPROJ_METRICAS
                 proj = app.verificar_projecao_rasters(sorted(metros.rglob("*.tif")))
                 a0, a1 = area_ha(amostra), (area_ha(metros) if metros.is_dir() else 0.0)
-                conferir("Aba 4 - reprojecao para metros antes do calculo",
+                conferir("Aba 6 - reprojecao para metros antes do calculo",
                          n > 0 and estrutura(metros) == estrutura(graus) and len(proj["metros"]) == n
                          and a0 > 0 and abs(a1 / a0 - 1) < 0.05,
                          "%d rasters em metros | area valida: original %.1f ha, reprojetado %.1f ha" % (
@@ -331,14 +332,22 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 for motor in ("pylandstats", "landscapemetrics"):
                     gerais = sorted(csvs.glob("metricas_paisagem_GERAL_%s_*.csv" % motor))
                     df = pd.read_csv(gerais[-1], usecols=["source_file"]) if gerais else None
-                    conferir("Aba 4 - metricas %s" % motor, df is not None and df["source_file"].nunique() == n,
+                    conferir("Aba 6 - metricas %s" % motor, df is not None and df["source_file"].nunique() == n,
                              "sem CSV geral" if df is None else "%d rasters, %d linhas" % (
                                  df["source_file"].nunique(), len(df)))
+                # Indice de estabilidade: um CSV por motor, calculado depois das metricas de todos os anos.
+                ieps = {m: sorted(csvs.glob("indice_estabilidade_IEP_%s_*.csv" % m)) for m in ("pylandstats", "landscapemetrics")}
+                tabelas = {m: pd.read_csv(a[-1]) for m, a in ieps.items() if a}
+                conferir("Aba 6 - indice de estabilidade (IEP) dos dois motores",
+                         len(tabelas) == 2 and all(len(t) > 0 and t["IEP_u"].between(0, 1).all()
+                                                   and t["n_anos"].max() == len(por_dir) for t in tabelas.values()),
+                         "; ".join("%s: %d combinacoes, ate %d anos, IEP medio %.3f" % (
+                             m, len(t), t["n_anos"].max(), t["IEP_u"].mean()) for m, t in tabelas.items()))
                 log = janela.log_metricas.get("1.0", "end")
-                conferir("Aba 4 - motor R em processos paralelos", "Falha no modo paralelo" not in log,
+                conferir("Aba 6 - motor R em processos paralelos", "Falha no modo paralelo" not in log,
                          "; ".join(l for l in log.splitlines() if l.startswith(("Executando em", "Rasters prontos"))))
 
-                # Aba 9: escanear a pasta (com subpastas), criar uma regra, salvar e carregar
+                # Aba 5: escanear a pasta (com subpastas), criar uma regra, salvar e carregar
                 # o .txt, atribuir a regra carregada a 3 arquivos e reclassificar tudo.
                 from tkinter import filedialog
 
@@ -346,7 +355,7 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 janela.pasta_saida_reclass_var.set(str(reclass))
                 janela._selecionar_pasta = lambda *a, **k: str(amostra)
                 janela._acao_selecionar_pasta_entrada_reclass()
-                conferir("Aba 9 - arquivos escaneados (com subpastas)", len(janela.reclass_arquivos) == n,
+                conferir("Aba 5 - arquivos escaneados (com subpastas)", len(janela.reclass_arquivos) == n,
                          "%d arquivos" % len(janela.reclass_arquivos))
                 janela.nova_regra_reclass_var.set("Teste")
                 janela._acao_criar_regra_reclass()
@@ -357,7 +366,7 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 filedialog.askopenfilename = lambda **k: str(txt)
                 janela._acao_salvar_txt_reclass()
                 janela._acao_carregar_txt_reclass()  # vira a regra ativa "regra_teste"
-                conferir("Aba 9 - salvar e carregar regras em .txt",
+                conferir("Aba 5 - salvar e carregar regras em .txt",
                          janela.reclass_regras.get("regra_teste") == [(1.0, 100.0, 7.0)],
                          str(janela.reclass_regras.get("regra_teste")))
                 itens = janela.tree_arquivos_reclass.get_children()
@@ -378,11 +387,11 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                         meta_ok = (meta_ok and sai.dtypes[0] == "uint8" and sai.nodata == 255
                                    and sai.crs == ent.crs and sai.transform == ent.transform)
                 com_teste = sum(1 for arq in janela.reclass_arquivos if arq["Regra"] == "regra_teste")
-                conferir("Aba 9 - reclassificacao conferida pixel a pixel",
+                conferir("Aba 5 - reclassificacao conferida pixel a pixel",
                          len(estrutura(reclass)) == n and diferentes == 0 and meta_ok and com_teste == 3,
                          "%d rasters (%d com a regra carregada), %d pixels diferentes, subpastas replicadas" % (
                              len(estrutura(reclass)), com_teste, diferentes))
-                conferir("Aba 9 - ano lido do nome com prefixo",
+                conferir("Aba 5 - ano lido do nome com prefixo",
                          app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif") == "1985",
                          app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif"))
             except Exception:  # noqa: BLE001
@@ -419,6 +428,8 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
     import threading
     import time
     from tkinter import colorchooser, filedialog, messagebox
+
+    import pandas as pd
 
     saida = Path(pasta_saida)
     saida.mkdir(parents=True, exist_ok=True)
@@ -564,6 +575,25 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                 na_janela(individual)
                 conferir("Grafico individual salvo", len(list((saida / "individual").rglob("*.png"))) == 1,
                          "%d arquivo(s)" % len(list((saida / "individual").rglob("*.*"))))
+
+                # 5b) Indice de estabilidade: caixa propria, com os cinco resultados e eixo X = Raio.
+                def marcar_indice():
+                    for var in aba.indice_vars.values():
+                        var.set(True)
+                    aba.saida_var.set(str(saida / "indice"))
+                    return len(aba.filtros.get(est.painel[0]) or []) if est.painel else 0
+
+                buffers = na_janela(marcar_indice)
+                acionar(aba.botao_indice, "_gerar_indice")
+                pasta_indice = saida / "indice" / "indice_estabilidade"
+                csv_indice = pasta_indice / "indice_estabilidade_IEP.csv"
+                tabela_indice = pd.read_csv(csv_indice) if csv_indice.is_file() else None
+                pngs_indice = list(pasta_indice.rglob("*.png")) if pasta_indice.is_dir() else []
+                conferir("Indice de estabilidade: tabela e graficos",
+                         tabela_indice is not None and len(tabela_indice) > 0 and tabela_indice["IEP_u"].between(0, 1).all()
+                         and buffers > 0 and len(pngs_indice) == 5 * buffers,
+                         "sem tabela" if tabela_indice is None else "%d combinacoes | IEP de %.3f a %.3f | %d graficos (5 resultados x %d buffers)" % (
+                             len(tabela_indice), tabela_indice["IEP_u"].min(), tabela_indice["IEP_u"].max(), len(pngs_indice), buffers))
 
                 # 6) Outra tabela: ponto e virgula, virgula decimal e nomes de coluna diferentes.
                 generica = saida / "tabela_generica.csv"

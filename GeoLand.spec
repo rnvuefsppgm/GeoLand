@@ -98,6 +98,7 @@ hidden_imports = [
     # Aba 10 (graficos): modulo proprio, nomes das metricas e os formatos
     # de saida do matplotlib (PNG, PDF e SVG), carregados sob demanda.
     "geoland_graficos",
+    "geoland_indice",
     "nomes_metricas_lsm",
     "matplotlib.backends.backend_agg",
     "matplotlib.backends.backend_pdf",

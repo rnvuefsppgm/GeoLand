@@ -35,7 +35,7 @@ GeoLand_V1.exe --teste-motores relatorio.txt
 
 O arquivo `relatorio.txt` deve terminar com `RESULTADO: OK`.
 
-Para testar a aba 4 (Métricas) com os seus próprios rasters, sem abrir a
+Para testar a aba 6 (Métricas) com os seus próprios rasters, sem abrir a
 interface — os dois motores, os três níveis e todas as métricas, em paralelo:
 
 ```bat
@@ -46,7 +46,7 @@ Os CSVs e o arquivo `relatorio_teste_metricas.txt` são gravados na pasta de
 saída; o relatório também deve terminar com `RESULTADO: OK`.
 
 Há ainda `GeoLand_V1.exe --teste-gui <pasta_rasters_em_metros> <pasta_saida>`,
-que abre a janela e aciona sozinho os botões das abas 6, 4 e 9 (leitura de
+que abre a janela e aciona sozinho os botões das abas 4, 6 e 5 (leitura de
 subpastas, estrutura replicada, verificação de projeção, reprojeção antes
 do cálculo e reclassificação) com uma amostra dos rasters, gravando
 `relatorio_teste_gui.txt`. E `GeoLand_V1.exe --teste-graficos <tabela.csv>
@@ -70,7 +70,7 @@ processamento. As barras de **Carregamento** e **Processamento** e o
 - **Polígonos da área de estudo** em shapefile (`.shp`).
 - **Rasters de uso e cobertura** em GeoTIFF (`.tif`), um por ano, com valores
   inteiros representando as classes. Para métricas de área e distância
-  corretas, os rasters devem estar em projeção métrica (UTM); a aba 6 faz
+  corretas, os rasters devem estar em projeção métrica (UTM); a aba 4 faz
   essa reprojeção.
 
 ### Aba 1 — Grade de pontos
@@ -92,57 +92,17 @@ Recorta cada raster por cada feição do shapefile de buffers. Indique o
 pasta de saída. Opções: `all_touched` (inclui pixels tocados pela borda) e
 **Núcleos paralelos**. Os recortes são gravados em subpastas por ano.
 
-### Aba 4 — Métricas
-
-Calcula as métricas para todos os rasters de uma pasta.
-
-1. Selecione a pasta de rasters (marque **Ler todas as subpastas** se os
-   recortes estiverem em subpastas por ano) e a pasta de saída.
-2. Marque os níveis: **Patch**, **Classe** e/ou **Paisagem**.
-3. Escolha a **Vizinhança** (4 ou 8 vizinhos).
-4. Em **Motores**, marque **PyLandStats**, **landscapemetrics (R)** ou ambos.
-   Para o motor R, confira o **cellsize (R)** (tamanho do pixel, 30 por padrão).
-5. Clique em **Verificar projeção (metros)** para conferir o CRS de cada
-   raster: o log lista cada arquivo que não está em metros (graus, sem CRS
-   ou ilegível) e mostra o total.
-6. Se houver rasters fora de metros, marque **Reprojetar para metros (UTM)
-   antes do cálculo**: cada um deles é reprojetado (vizinho mais próximo)
-   para o SIRGAS 2000 / UTM da sua zona e gravado em
-   `<pasta de saída>\rasters_reprojetados_metros`, com o mesmo nome e as
-   mesmas subpastas; os originais não são alterados.
-7. Nas páginas "Métricas PyLandStats" e "Métricas landscapemetrics (R)",
-   escolha as métricas de cada nível (botões **Todas** e **Limpar**).
-8. Inicie o cálculo. São gravados um CSV por raster e um CSV geral.
-
-### Aba 5 — Buffer + Métricas (SHP)
-
-Junta a tabela de métricas ao shapefile de buffers pelo **Campo ID**,
-gerando um shapefile com as métricas como atributos, pronto para o QGIS.
-
-### Aba 6 — Reprojeção de rasters
+### Aba 4 — Reprojeção de rasters
 
 Reprojeta em lote os rasters de uma pasta. Selecione a **pasta dos rasters
 de entrada**: todos os `.tif`/`.tiff` da pasta e das subpastas são
 carregados automaticamente, e a pasta de saída recebe a **mesma estrutura
 de subpastas**. Informe o **EPSG** de destino (o botão **Sugerir EPSG**
 propõe um código), a **Reamostragem** e o número de núcleos. Use antes das
-abas 3 e 4 se os rasters estiverem em graus (na aba 4 também é possível
+abas 3 e 6 se os rasters estiverem em graus (na aba 6 também é possível
 reprojetar automaticamente antes do cálculo).
 
-### Aba 7 — Fundido (memória)
-
-Faz o recorte (aba 3) e as métricas (aba 4) de uma vez, sem gravar os
-recortes em disco — indicado para muitos buffers e muitos anos. Roda em
-paralelo e pode **retomar de onde parou**. Pode salvar CSV por feição,
-Parquet por ano, Parquet único e shapefile com métricas.
-
-### Aba 8 — Consolidar tabelas
-
-Junta os CSVs (ou Parquets) gerados em uma tabela única. Informe o nome base
-do arquivo e os formatos de saída: **CSV único**, **Parquet único** ou
-**Parquet por ano**.
-
-### Aba 9 — Reclassificar rasters
+### Aba 5 — Reclassificar rasters
 
 Reclassifica rasters em lote por regras `Val_Min, Val_Max, Novo_Val` (a aba
 "Reclassificar" do GeoRasterTools, equivalente ao `terra::classify`). Serve,
@@ -166,8 +126,64 @@ por exemplo, para agrupar classes do MapBiomas antes de calcular as métricas.
    `<pasta de saída>\<subpasta>\Reclass_<nome>.tif`.
 
 Com "NA (sem valor)", os pixels sem dado e os não mapeados recebem o valor
-de sem-dado do tipo escolhido (255 em 8 bits). A aba 4 continua lendo o
+de sem-dado do tipo escolhido (255 em 8 bits). A aba 6 continua lendo o
 ano do nome do arquivo mesmo com o prefixo `Reclass_`.
+
+### Aba 6 — Métricas
+
+Calcula as métricas para todos os rasters de uma pasta.
+
+1. Selecione a pasta de rasters (marque **Ler todas as subpastas** se os
+   recortes estiverem em subpastas por ano) e a pasta de saída.
+2. Marque os níveis: **Patch**, **Classe** e/ou **Paisagem**.
+3. Escolha a **Vizinhança** (4 ou 8 vizinhos).
+4. Em **Motores**, marque **PyLandStats**, **landscapemetrics (R)** ou ambos.
+   Para o motor R, confira o **cellsize (R)** (tamanho do pixel, 30 por padrão).
+5. Clique em **Verificar projeção (metros)** para conferir o CRS de cada
+   raster: o log lista cada arquivo que não está em metros (graus, sem CRS
+   ou ilegível) e mostra o total.
+6. Se houver rasters fora de metros, marque **Reprojetar para metros (UTM)
+   antes do cálculo**: cada um deles é reprojetado (vizinho mais próximo)
+   para o SIRGAS 2000 / UTM da sua zona e gravado em
+   `<pasta de saída>\rasters_reprojetados_metros`, com o mesmo nome e as
+   mesmas subpastas; os originais não são alterados.
+7. Nas páginas "Métricas PyLandStats" e "Métricas landscapemetrics (R)",
+   escolha as métricas de cada nível (botões **Todas** e **Limpar**).
+8. Inicie o cálculo. São gravados um CSV por raster e um CSV geral.
+9. Para o **Índice de Estabilidade da Paisagem (IEP)**, marque a caixa
+   "Calcular o IEP ao terminar as métricas de todos os anos". O índice
+   precisa da série temporal inteira, então sai só no final, em
+   `indice_estabilidade_IEP_<motor>_<data>.csv`, com uma linha por buffer,
+   classe e raio.
+
+**Como o IEP é calculado** (mesma base do `script_calculo_estabilidade.R`):
+para cada buffer × classe × raio, o coeficiente de variação entre os anos de
+CA, PLAND, NP, LPI e ENN_MN; cada CV é normalizado entre 0 e 1 em relação a
+todas as combinações da tabela; a variabilidade é a média dos CVs
+normalizados de composição (CA, PLAND), configuração (NP, LPI) e
+conectividade (ENN_MN), com peso 1/3 cada; e `IEP = 1 − variabilidade`.
+Quanto mais perto de 1, mais estável a classe no período. A coluna `n_anos`
+mostra em quantos anos a classe apareceu: com um único ano o CV é 0 e o IEP
+vale 1, o que não indica estabilidade real. Como a normalização depende do
+conjunto, o IEP muda se a tabela tiver outros buffers.
+
+### Aba 7 — Fundido (memória)
+
+Faz o recorte (aba 3) e as métricas (aba 6) de uma vez, sem gravar os
+recortes em disco — indicado para muitos buffers e muitos anos. Roda em
+paralelo e pode **retomar de onde parou**. Pode salvar CSV por feição,
+Parquet por ano, Parquet único e shapefile com métricas.
+
+### Aba 8 — Consolidar tabelas
+
+Junta os CSVs (ou Parquets) gerados em uma tabela única. Informe o nome base
+do arquivo e os formatos de saída: **CSV único**, **Parquet único** ou
+**Parquet por ano**.
+
+### Aba 9 — Buffer + Métricas (SHP)
+
+Junta a tabela de métricas ao shapefile de buffers pelo **Campo ID**,
+gerando um shapefile com as métricas como atributos, pronto para o QGIS.
 
 ### Aba 10 — Gráficos
 
@@ -183,11 +199,11 @@ tabela, o aplicativo lê o arquivo e cria os campos da aba sozinho.
 |---|---|---|---|
 | Eixo X | a sequência do gráfico | `year` | `Ano` |
 | Linhas | o que separa as linhas | `class_val` (classes) | `Cultura` |
-| Um gráfico para cada | o que identifica cada gráfico | `Buffer` + `Diâmetro` | `Municipio` |
+| Um gráfico para cada | o que identifica cada gráfico | `Buffer` + `Raio` | `Municipio` |
 | Métricas (eixo Y) | colunas numéricas; um gráfico por métrica | `ca`, `np`, `enn_mn`... | `Produtividade` |
 | Filtros | valores de cada coluna de categoria | `level`, `Buffer`, `class_val`... | `Municipio`, `Cultura` |
 
-Nas tabelas do GeoLand, `Buffer` e `Diâmetro` são criados a partir do nome
+Nas tabelas do GeoLand, `Buffer` e `Raio` são criados a partir do nome
 do raster (`clip_id_<ID>_diam_<DIAM>_<ANO>`). O separador (vírgula, ponto e
 vírgula ou tab), a vírgula decimal e a codificação do CSV são detectados.
 Os papéis sugeridos podem ser trocados nas caixas de seleção.
@@ -196,7 +212,7 @@ Os papéis sugeridos podem ser trocados nas caixas de seleção.
    estrutura encontrada e o primeiro gráfico aparece na pré-visualização.
 2. Em **Estrutura**, confira o eixo X, as linhas e as colunas de "um gráfico
    para cada combinação de". Desmarcar `Buffer`, por exemplo, gera um
-   gráfico por diâmetro com a média de todos os buffers.
+   gráfico por raio com a média de todos os buffers.
 3. Em **Métricas**, marque as métricas desejadas; em **Filtros**, escolha a
    coluna e desmarque os valores que não devem entrar (buffers, classes,
    anos...). O rodapé informa quantos gráficos serão gerados.
@@ -207,7 +223,7 @@ Os papéis sugeridos podem ser trocados nas caixas de seleção.
 5. **Pré-visualizar** mostra o gráfico escolhido em "Gráfico individual" e
    **Salvar este gráfico** grava só ele.
 6. **Gerar TODOS os gráficos selecionados** grava
-   `<pasta de saída>\<métrica>\<métrica>__Buffer-<ID>_Diametro-<DIAM>.png`.
+   `<pasta de saída>\<métrica>\<métrica>__Buffer-<ID>_Raio-<RAIO>.png`.
 
 **Cores e nomes das classes.** Se houver um arquivo `cores.txt` na pasta da
 tabela, ele é lido automaticamente; cada linha tem `valor, "#rrggbb", nome`
@@ -216,6 +232,17 @@ o dicionário de cores: uma linha por classe, com duplo clique para abrir o
 seletor de cores, edição do nome da legenda, preenchimento por paleta
 (ggplot2, Viridis, Turbo, Espectral...) e os botões **Salvar .txt** e
 **Carregar .txt**. Sem dicionário, as cores são as do ggplot2.
+
+**Gráficos do índice.** A caixa "6. Índice de Estabilidade da Paisagem (IEP)"
+calcula o índice com a tabela carregada (precisa das colunas de CA, PLAND,
+NP, LPI e ENN_MN de classe) e gera os gráficos dele em
+`<pasta de saída>\indice_estabilidade`, junto com a tabela
+`indice_estabilidade_IEP.csv`. Marque os resultados (IEP, variabilidade
+global, composição, configuração, conectividade) e o eixo X: **Raio** (um
+gráfico por buffer) ou **Buffer** (um gráfico por raio); as linhas são as
+classes. O cálculo usa todos os buffers, classes e raios da tabela; o
+filtro de anos define o período, e os filtros de buffer, raio e classe só
+escolhem o que é desenhado.
 
 A linha de cada classe é interrompida nos anos em que a classe não tem
 valor; marque **Ligar lacunas** para unir os pontos. As siglas do
@@ -272,7 +299,7 @@ roda o PyInstaller. O resultado fica em `dist\GeoLand_V1\GeoLand_V1.exe`.
 | Antivírus ou SmartScreen bloqueia | O executável não é assinado; libere a execução. |
 | Motor R falha | Rode `--teste-motores` e veja o relatório; confirme que `_internal\R` existe. |
 | "Can't pickle <function _lsm_r_init>" ou "WinError 6" ao calcular métricas | Erro da primeira compilação da V1, já corrigido: baixe o zip de novo. |
-| Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 6. |
+| Áreas ou distâncias estranhas | Rasters em graus: reprojete para UTM na aba 4. |
 | Demora para abrir | Normal na primeira execução (o antivírus examina os arquivos). |
 
 ## Componentes de terceiros

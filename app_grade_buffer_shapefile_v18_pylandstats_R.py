@@ -34,11 +34,11 @@ V17 (atual) -
       * Mantida a opção de salvar CSV por feição no Fundido.
       * Aba Consolidar ganha a opção de LER vários Parquets e juntá-los num único Parquet
         (além de continuar consolidando CSVs).
-      * Aba 5 (Buffer + Métrica) aceita métricas em CSV ou Parquet, pareando pelo campo
+      * Aba 9 (Buffer + Métrica) aceita métricas em CSV ou Parquet, pareando pelo campo
         id_pt (id) de ambos para integrar à geometria do shapefile.
 
 V18 -
-      * Aba 4 (Métricas) ganha o motor R `landscapemetrics` (via rpy2), além do PyLandStats.
+      * Aba 6 (Métricas) ganha o motor R `landscapemetrics` (via rpy2), além do PyLandStats.
         O usuário pode marcar um motor, o outro, ou ambos. Painel de seleção de métricas por
         nível (patch/classe/paisagem) para o R, com as funções lsm_* do pacote. Campo cellsize
         (options(landscapemetrics_cellsize = 30) por padrão), vizinhança via `directions` (4/8),
@@ -457,7 +457,7 @@ def extrair_ano_de_recorte(caminho: str) -> str:
         clip_id_7_diam_1000_anoNA.tif -> anoNA
     """
     stem = Path(caminho).stem
-    # Aceita um prefixo antes de "clip_id_" (ex.: "Reclass_", da aba 9).
+    # Aceita um prefixo antes de "clip_id_" (ex.: "Reclass_", da aba 5).
     if re.match(r"(?i)^(?:.+_)?clip_id_.+_diam_.+_[^_]+$", stem):
         return stem.rsplit("_", 1)[-1]
     return extrair_ano_do_nome(caminho)
@@ -1166,13 +1166,13 @@ def listar_rasters_pasta(pasta: str, recursivo: bool = False) -> List[Path]:
             arquivos.extend(pasta.glob(padrao))
     # Remove duplicados e ordena.
     arquivos = sorted(set(arquivos), key=lambda p: str(p).lower())
-    # Ignora a subpasta em que a aba 4 grava os rasters reprojetados para metros
+    # Ignora a subpasta em que a aba 6 grava os rasters reprojetados para metros
     # (quando ela fica dentro da pasta escolhida), para não ler o mesmo raster duas vezes.
     arquivos = [p for p in arquivos if PASTA_REPROJ_METRICAS not in p.relative_to(pasta).parts[:-1]]
     return arquivos
 
 
-# Subpasta (dentro da pasta de saída dos CSVs) onde a aba 4 grava os rasters
+# Subpasta (dentro da pasta de saída dos CSVs) onde a aba 6 grava os rasters
 # reprojetados para metros antes do cálculo das métricas.
 PASTA_REPROJ_METRICAS = "rasters_reprojetados_metros"
 
@@ -1913,7 +1913,7 @@ def gerar_shapefiles_metricas_fundido(
     stop_event: Optional[threading.Event] = None,
 ) -> Dict[str, object]:
     """
-    Gera shapefiles de métricas da aba Fundido, no MESMO formato da aba 5:
+    Gera shapefiles de métricas da aba Fundido, no MESMO formato da aba 9:
     formato longo (geometria replicada por linha de métrica), nomes de campo
     encurtados para 10 caracteres, um .shp por ano e (opcional) um consolidado,
     além do CSV de equivalência de nomes de campo.
@@ -4097,7 +4097,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.workers_recorte_var = tk.StringVar(value=str(numero_padrao_de_nucleos()))
         self.stop_recorte_event = threading.Event()
 
-        # Aba 4
+        # Aba 6
         self.pasta_rasters_metricas_var = tk.StringVar()
         self.pasta_saida_metricas_var = tk.StringVar()
         self.nivel_patch_var = tk.BooleanVar(value=True)
@@ -4106,6 +4106,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.vizinhanca_metricas_var = tk.StringVar(value="8")
         self.recursivo_metricas_var = tk.BooleanVar(value=True)
         self.reprojetar_metricas_var = tk.BooleanVar(value=False)
+        self.calcular_iep_var = tk.BooleanVar(value=False)
         self.workers_metricas_var = tk.StringVar(value=str(numero_padrao_de_nucleos()))
         # Motores de cálculo (o usuário pode marcar um, o outro, ou ambos)
         self.engine_pls_var = tk.BooleanVar(value=True)
@@ -4114,7 +4115,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.cellsize_r_var = tk.StringVar(value="30")
         self.stop_metricas_event = threading.Event()
 
-        # Aba 5
+        # Aba 9
         self.shp_buffer_join_var = tk.StringVar()
         self.csv_metricas_join_var = tk.StringVar()
         self.tipo_entrada_join_var = tk.StringVar(value="CSV")
@@ -4122,7 +4123,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.pasta_saida_join_var = tk.StringVar()
         self.stop_join_event = threading.Event()
 
-        # Aba 6 - Reprojeção de rasters
+        # Aba 4 - Reprojeção de rasters
         self.rasters_reproj_lista: List[str] = []
         self.rasters_reproj_texto_var = tk.StringVar()
         self.pasta_saida_reproj_var = tk.StringVar()
@@ -4193,12 +4194,13 @@ class AplicacaoGradeBuffer(tk.Tk):
         notebook.add(self.aba_grade, text="1. Grade de pontos")
         notebook.add(self.aba_buffer, text="2. Buffers")
         notebook.add(self.aba_recorte, text="3. Recortar rasters")
-        notebook.add(self.aba_metricas, text="4. Métricas PyLandStats")
-        notebook.add(self.aba_join, text="5. Buffer + Métricas (SHP)")
-        notebook.add(self.aba_reproj, text="6. Reprojeção de rasters")
+        # Ordem das abas = sequência habitual de processamento.
+        notebook.add(self.aba_reproj, text="4. Reprojeção de rasters")
+        notebook.add(self.aba_reclass, text="5. Reclassificar rasters")
+        notebook.add(self.aba_metricas, text="6. Métricas e índice")
         notebook.add(self.aba_fundido, text="7. Fundido (memória)")
         notebook.add(self.aba_consol, text="8. Consolidar tabelas")
-        notebook.add(self.aba_reclass, text="9. Reclassificar rasters")
+        notebook.add(self.aba_join, text="9. Buffer + Métricas (SHP)")
         notebook.add(self.aba_graficos, text="10. Gráficos")
 
         self._montar_aba_grade()
@@ -4645,7 +4647,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.log_recorte.after(0, lambda: messagebox.showinfo("Concluído", f"Recortes raster gerados com sucesso.\nGeoTIFFs: {len(saidas)}"))
 
     # -------------------------------------------------------------------------
-    # Aba 4: métricas PyLandStats
+    # Aba 6: métricas PyLandStats
     # -------------------------------------------------------------------------
 
     def _montar_aba_metricas(self):
@@ -4689,6 +4691,15 @@ class AplicacaoGradeBuffer(tk.Tk):
             opcoes, text="Reprojetar para metros (UTM) antes do cálculo os rasters que não estiverem em metros",
             variable=self.reprojetar_metricas_var,
         ).grid(row=2, column=3, columnspan=5, sticky="w", padx=(30, 6), pady=(8, 0))
+
+        # Índice de Estabilidade da Paisagem: caixa separada das métricas, calculado ao final.
+        caixa_iep = ttk.LabelFrame(opcoes, text="Índice de Estabilidade da Paisagem (IEP) - por buffer, classe e raio", padding=4)
+        caixa_iep.grid(row=3, column=0, columnspan=8, sticky="ew", padx=6, pady=(8, 0))
+        ttk.Checkbutton(
+            caixa_iep, variable=self.calcular_iep_var,
+            text="Calcular o IEP ao terminar as métricas de todos os anos (usa CA, PLAND, NP, LPI e ENN_MN "
+                 "de classe, incluídas automaticamente)",
+        ).pack(anchor="w")
 
         metricas_nb = ttk.Notebook(frame)
         metricas_nb.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=6, pady=6)
@@ -4938,6 +4949,14 @@ class AplicacaoGradeBuffer(tk.Tk):
         motores_txt = " + ".join([m for m, on in [("PyLandStats", usar_pls), ("landscapemetrics (R)", usar_r)] if on])
         self._log(self.log_metricas, f"Motores selecionados: {motores_txt}")
 
+        # Índice de estabilidade (IEP): precisa do nível de classe e de cinco métricas de classe.
+        import geoland_indice
+        calcular_iep = bool(self.calcular_iep_var.get())
+        if calcular_iep:
+            niveis["class"] = True
+            self._log(self.log_metricas, "IEP marcado: nível Classe e as métricas CA, PLAND, NP, LPI e ENN_MN "
+                                         "entram no cálculo; o índice sai ao final, com todos os anos.")
+
         # Opcional: verifica a projeção e reprojeta para metros os rasters que não estiverem em metros.
         rasters_lista = None
         if bool(self.reprojetar_metricas_var.get()):
@@ -4962,6 +4981,9 @@ class AplicacaoGradeBuffer(tk.Tk):
                 "class": self._obter_metricas_listbox(self.listbox_class),
                 "landscape": self._obter_metricas_listbox(self.listbox_landscape),
             }
+            if calcular_iep:
+                metricas_por_nivel["class"] = list(dict.fromkeys(
+                    list(metricas_por_nivel["class"]) + list(geoland_indice.METRICAS_PYLANDSTATS)))
             self._log(self.log_metricas, "=" * 70)
             self._log(self.log_metricas, "Motor: PyLandStats")
             res_pls = calcular_metricas_paisagem_pylandstats(
@@ -4995,6 +5017,9 @@ class AplicacaoGradeBuffer(tk.Tk):
                 "class": self._obter_metricas_r(self.listbox_r_class),
                 "landscape": self._obter_metricas_r(self.listbox_r_landscape),
             }
+            if calcular_iep:
+                metricas_func_por_nivel["class"] = list(dict.fromkeys(
+                    list(metricas_func_por_nivel["class"]) + list(geoland_indice.FUNCOES_LSM)))
             self._log(self.log_metricas, "=" * 70)
             self._log(self.log_metricas, f"Motor: landscapemetrics (R)  |  cellsize={cellsize}")
             res_r = calcular_metricas_paisagem_r(
@@ -5017,6 +5042,25 @@ class AplicacaoGradeBuffer(tk.Tk):
                       f"[R] rasters={res_r['rasters_processados']} | "
                       f"CSVs individuais={len(res_r['csvs_individuais'])} | CSV geral={res_r['csv_geral']}")
 
+        # Índice de Estabilidade da Paisagem: só agora, com as métricas de toda a série temporal.
+        if calcular_iep:
+            self._log(self.log_metricas, "=" * 70)
+            self._log(self.log_metricas, "Índice de Estabilidade da Paisagem (IEP)")
+            for nome, r in resumo:
+                if not r.get("csv_geral"):
+                    continue
+                motor = "pylandstats" if nome == "PyLandStats" else "landscapemetrics"
+                destino = str(Path(pasta_saida) / f"indice_estabilidade_IEP_{motor}_{datetime.now():%Y%m%d_%H%M%S}.csv")
+                try:
+                    info = geoland_indice.salvar_iep_do_csv_geral(str(r["csv_geral"]), destino)
+                    self._log(self.log_metricas,
+                              f"[IEP - {nome}] {info['linhas']} combinações de buffer x classe x raio | até "
+                              f"{info['anos']} anos | IEP médio = {info['iep_medio']:.3f} | {destino}")
+                    if info["anos"] < 2:
+                        self._log(self.log_metricas, "ATENÇÃO: há um único ano; sem série temporal o CV é 0 e o IEP vale 1.")
+                except Exception as exc:
+                    self._log(self.log_metricas, f"[IEP - {nome}] não calculado: {exc}")
+
         self._log(self.log_metricas, "=" * 70)
         linhas = "\n".join(
             f"- {nome}: {r['rasters_processados']} rasters, {len(r['csvs_individuais'])} CSVs, geral: {r['csv_geral']}"
@@ -5025,7 +5069,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.log_metricas.after(0, lambda: messagebox.showinfo("Concluído", "Métricas calculadas com sucesso.\n\n" + linhas))
 
     # -------------------------------------------------------------------------
-    # Aba 5: buffer + métricas -> shapefiles (.shp)
+    # Aba 9: buffer + métricas -> shapefiles (.shp)
     # -------------------------------------------------------------------------
 
     def _montar_aba_join_metricas(self):
@@ -5163,7 +5207,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         ))
 
     # -------------------------------------------------------------------------
-    # Aba 6: reprojeção de rasters em lote
+    # Aba 4: reprojeção de rasters em lote
     # -------------------------------------------------------------------------
 
     def _montar_aba_reprojecao(self):
@@ -5240,7 +5284,7 @@ class AplicacaoGradeBuffer(tk.Tk):
             self._acao_sugerir_epsg_reproj()
 
     def _carregar_rasters_reproj(self, avisar: bool = False) -> List[str]:
-        """Lê a pasta de entrada da aba 6 e todas as subpastas e carrega a lista de rasters."""
+        """Lê a pasta de entrada da aba 4 e todas as subpastas e carrega a lista de rasters."""
         pasta = self.rasters_reproj_texto_var.get().strip()
         self.rasters_reproj_lista = []
         if not pasta:
@@ -5330,7 +5374,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         ))
 
     # -------------------------------------------------------------------------
-    # Aba 9: reclassificar rasters por regras (portada do GeoRasterTools)
+    # Aba 5: reclassificar rasters por regras (portada do GeoRasterTools)
     # -------------------------------------------------------------------------
 
     def _montar_aba_reclass(self):
@@ -5757,7 +5801,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         ttk.Checkbutton(opcoes, text="Salvar Parquet por ano (1 por pasta de ano)", variable=self.salvar_parquet_ano_fundido_var).grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=(6, 0))
         ttk.Checkbutton(opcoes, text="Gerar Parquet único ao final", variable=self.parquet_unico_final_fundido_var).grid(row=2, column=3, columnspan=2, sticky="w", padx=6, pady=(6, 0))
         ttk.Checkbutton(opcoes, text="Retomar de onde parou (pular rasters já processados)", variable=self.retomar_fundido_var).grid(row=2, column=5, columnspan=3, sticky="w", padx=6, pady=(6, 0))
-        ttk.Checkbutton(opcoes, text="Salvar shapefile com métricas (como a aba 5)", variable=self.salvar_shp_fundido_var).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=(6, 0))
+        ttk.Checkbutton(opcoes, text="Salvar shapefile com métricas (como a aba 9)", variable=self.salvar_shp_fundido_var).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=(6, 0))
         ttk.Checkbutton(opcoes, text="Incluir shapefile consolidado (todos os anos)", variable=self.shp_consolidado_fundido_var).grid(row=3, column=3, columnspan=3, sticky="w", padx=6, pady=(6, 0))
 
         metricas_frame = ttk.LabelFrame(frame, text="Seleção de métricas por nível", padding=8)
@@ -5770,13 +5814,13 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.listbox_landscape_fundido = self._criar_listbox_metricas(metricas_frame, "Paisagem", LANDSCAPE_METRICS, 2)
 
         ajuda = (
-            "Mesma lógica de recorte e métricas das abas 3 e 4, sem gravar o recorte em disco. Uma tarefa por raster, "
+            "Mesma lógica de recorte e métricas das abas 3 e 6, sem gravar o recorte em disco. Uma tarefa por raster, "
             "em paralelo. Marque 'Usar processos' para escapar do GIL; desmarque para usar threads. "
             "'Salvar Parquet por ano' grava 1 Parquet em cada pasta de ano (em fluxo, baixa memória) — recomendado; "
             "'Gerar Parquet único ao final' junta esses Parquets num só. 'Salvar CSV por feição' é opcional. "
             "'Retomar de onde parou' pula o que já existe (Parquet do ano ou CSVs), com barra/contagem/ETA globais; "
             "se a configuração mudar, a retomada é desativada. Saídas em pastas por ano; o Parquet único fica na raiz. "
-            "'Salvar shapefile com métricas' gera, em 'shapefiles_metricas/', um .shp por ano no mesmo formato da aba 5 "
+            "'Salvar shapefile com métricas' gera, em 'shapefiles_metricas/', um .shp por ano no mesmo formato da aba 9 "
             "(geometria replicada por linha de métrica, campos com até 10 caracteres). "
             "A aba '8. Consolidar' também junta vários Parquets/CSVs num único."
         )
@@ -5904,11 +5948,11 @@ class AplicacaoGradeBuffer(tk.Tk):
         self._log(self.log_fundido, f"Parquets por ano gravados agora: {resultado.get('n_parquet_ano', 0)}")
         self._log(self.log_fundido, f"Parquet único final: {parquet_unico or '—'}")
 
-        # ---- Pós-etapa opcional: shapefiles de métricas (como a aba 5) ----
+        # ---- Pós-etapa opcional: shapefiles de métricas (como a aba 9) ----
         shp_info = None
         if bool(self.salvar_shp_fundido_var.get()):
             self._log(self.log_fundido, "-" * 70)
-            self._log(self.log_fundido, "Gerando shapefiles de métricas (formato da aba 5)...")
+            self._log(self.log_fundido, "Gerando shapefiles de métricas (formato da aba 9)...")
             shp_info = gerar_shapefiles_metricas_fundido(
                 shp_buffers_lista=list(self.shp_buffers_fundido_lista),
                 pasta_saida=self.pasta_saida_fundido_var.get().strip(),

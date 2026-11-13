@@ -15,8 +15,8 @@ O arquivo tem duas partes independentes:
 
 Modelo de dados: tabela "larga", com uma coluna para o eixo X (ex.: year),
 uma coluna opcional que separa as linhas (ex.: class_val), colunas que
-identificam cada gráfico (ex.: Buffer e Diâmetro) e uma coluna numérica por
-métrica. Nas tabelas do GeoLand, Buffer e Diâmetro são criados a partir do
+identificam cada gráfico (ex.: Buffer e Raio) e uma coluna numérica por
+métrica. Nas tabelas do GeoLand, Buffer e Raio são criados a partir do
 nome do raster (clip_id_<ID>_diam_<DIAM>_<ANO>).
 """
 
@@ -40,6 +40,7 @@ try:
     from nomes_metricas_lsm import NOMES_LSM
 except ImportError:  # arquivo gerado; sem ele o rótulo é o nome da coluna
     NOMES_LSM = {}
+from geoland_indice import NOMES_INDICE, calcular_iep_de_tabela_de_metricas
 
 # =============================================================================
 # Constantes
@@ -117,6 +118,8 @@ def nome_bonito(coluna: str) -> str:
 def nome_metrica(coluna: str) -> str:
     """Nome por extenso da métrica: siglas do landscapemetrics viram
     'Number of patches (NP)'; outras colunas, 'Number of patches'."""
+    if str(coluna) in NOMES_INDICE:
+        return NOMES_INDICE[str(coluna)]
     chave = str(coluna).strip().lower()
     if chave in NOMES_LSM:
         nome = NOMES_LSM[chave]
@@ -283,13 +286,13 @@ def estruturar_tabela(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
     Descobre o papel de cada coluna e sugere a estrutura do gráfico.
 
     - Se alguma coluna de texto traz nomes no padrão dos recortes do GeoLand
-      (clip_id_<ID>_diam_<DIAM>_<ANO>), cria as colunas "Buffer" e "Diâmetro"
+      (clip_id_<ID>_diam_<DIAM>_<ANO>), cria as colunas "Buffer" e "Raio"
       (e "Ano", se a tabela não tiver ano).
     - Dimensões: colunas de texto com até 2000 valores e colunas de números
       inteiros com até 100 valores cujo nome indica categoria (ano, classe...).
     - Métricas: as demais colunas numéricas que variam.
     - Sugestões: eixo X = ano; linhas = classe; um gráfico por Buffer e
-      Diâmetro (ou pelas demais colunas de texto, em tabelas genéricas).
+      Raio (ou pelas demais colunas de texto, em tabelas genéricas).
     """
     df = df.copy()
     est = Estrutura()
@@ -305,7 +308,7 @@ def estruturar_tabela(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
         if nomes.head(2000).str.match(PADRAO_RECORTE).mean() < 0.9:
             continue
         partes = df[coluna].astype(str).str.replace(r"\.tiff?$", "", regex=True, case=False).str.extract(PADRAO_RECORTE)
-        novas = {"Buffer": partes["buffer"], "Diâmetro": partes["diam"]}
+        novas = {"Buffer": partes["buffer"], "Raio": partes["diam"]}
         if not any(n in minusculas for n in NOMES_X):
             novas["Ano"] = partes["ano"]
         for nome, valores in novas.items():
@@ -344,7 +347,7 @@ def estruturar_tabela(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
     if est.serie is None:  # tabela genérica: a última coluna de texto com poucos valores vira as linhas
         est.serie = next((c for c in reversed(textos) if df[c].nunique(dropna=True) <= 20), None)
     if "Buffer" in est.derivadas:
-        est.painel = [c for c in ("Buffer", "Diâmetro") if c in est.derivadas and df[c].nunique(dropna=True) >= 2]
+        est.painel = [c for c in ("Buffer", "Raio") if c in est.derivadas and df[c].nunique(dropna=True) >= 2]
     else:
         est.painel = [c for c in textos if c != est.serie and df[c].nunique(dropna=True) <= 200 and
                       str(c).lower() not in ("level", "nivel", "engine")]
@@ -401,7 +404,7 @@ def _mpl() -> dict:
 
 def desenhar_grafico(series: Sequence[dict], opcoes: OpcoesGrafico, categorias_x: Optional[List[str]] = None,
                      x_inteiro: bool = False, titulo: str = "", subtitulo: str = "", rotulo_x: str = "",
-                     rotulo_y: str = "", titulo_legenda: str = ""):
+                     rotulo_y: str = "", titulo_legenda: str = "", marcas_x: Optional[Sequence[float]] = None):
     """
     Desenha um gráfico de linhas e pontos no padrão do ggplot2 e devolve a Figure.
 
@@ -454,9 +457,12 @@ def desenhar_grafico(series: Sequence[dict], opcoes: OpcoesGrafico, categorias_x
             for rotulo in ax.get_xticklabels():
                 rotulo.set_horizontalalignment("right")
     else:
-        if x_inteiro:
-            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=9, integer=True, min_n_ticks=2))
-        ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(2))
+        if marcas_x is not None:  # poucos valores de X (ex.: raios 500, 1000, 1500): uma marca em cada um
+            ax.set_xticks(list(marcas_x))
+        else:
+            if x_inteiro:
+                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=9, integer=True, min_n_ticks=2))
+            ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(2))
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(formatar))
     ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6, min_n_ticks=3))
     ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
@@ -633,6 +639,7 @@ class Plano:
         op = self.opcoes
         return desenhar_grafico(
             series, op, categorias_x=categorias, x_inteiro=self.x_inteiro,
+            marcas_x=todos_x if categorias is None and len(todos_x) <= 12 else None,
             titulo=_preencher(op.titulo, campos), subtitulo=_preencher(op.subtitulo, campos),
             rotulo_x=_preencher(op.rotulo_x, campos) or nome_bonito(self.x),
             rotulo_y=_preencher(op.rotulo_y, campos) or nome_metrica(metrica),
@@ -853,7 +860,7 @@ class AbaGraficos:
         met.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
         met.columnconfigure(0, weight=1)
         met.rowconfigure(0, weight=1)
-        self.lista_metricas = ListaMarcavel(met, altura=6, ao_mudar=self._ao_mudar_metricas, largura=230)
+        self.lista_metricas = ListaMarcavel(met, altura=5, ao_mudar=self._ao_mudar_metricas, largura=230)
         self.lista_metricas.grid(row=0, column=0, sticky="nsew")
 
         # 3. Filtros
@@ -929,9 +936,25 @@ class AbaGraficos:
                                             "e o primeiro gráfico aparece aqui.")
         self.rotulo_previa.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
 
+        # 6. Índice de Estabilidade da Paisagem: caixa própria, separada das métricas
+        self.indice_vars = {coluna: tk.BooleanVar(value=(coluna == "IEP_u")) for coluna in NOMES_INDICE}
+        self.indice_x_var = tk.StringVar(value="Raio")
+        ind = ttk.LabelFrame(frame, padding=4, text="6. Índice de Estabilidade da Paisagem (IEP) - por classe, calculado "
+                             "com CA, PLAND, NP, LPI e ENN_MN de todos os anos da tabela")
+        ind.grid(row=4, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
+        for coluna, texto in (("IEP_u", "IEP"), ("V_u", "Variabilidade global"), ("V_comp", "Composição"),
+                              ("V_conf", "Configuração"), ("V_conn", "Conectividade")):
+            ttk.Checkbutton(ind, text=texto, variable=self.indice_vars[coluna]).pack(side="left", padx=(2, 8))
+        ttk.Label(ind, text="Eixo X:").pack(side="left", padx=(10, 4))
+        ttk.Combobox(ind, textvariable=self.indice_x_var, state="readonly", width=8, values=["Raio", "Buffer"]).pack(side="left")
+        self.botao_indice = ttk.Button(
+            ind, text="Calcular o índice e gerar os gráficos do índice",
+            command=lambda: app._executar_thread(self.botao_indice, self.botao_parar, self.stop_event, self._gerar_indice))
+        self.botao_indice.pack(side="left", fill="x", expand=True, padx=(12, 2))
+
         # Rodapé: carregar, gerar tudo, parar, progresso e log
         rodape = ttk.Frame(frame)
-        rodape.grid(row=4, column=0, columnspan=3, sticky="ew", padx=6, pady=(6, 2))
+        rodape.grid(row=5, column=0, columnspan=3, sticky="ew", padx=6, pady=(6, 2))
         rodape.columnconfigure(1, weight=1)
         self.botao_carregar = ttk.Button(
             rodape, text="Ler tabela e criar campos",
@@ -945,16 +968,16 @@ class AbaGraficos:
                                       command=lambda: app._solicitar_parada(self.stop_event, self.log))
         self.botao_parar.grid(row=0, column=2)
         self.rotulo_resumo = ttk.Label(frame, text="Processamento: aguardando a tabela de dados")
-        self.rotulo_resumo.grid(row=5, column=0, columnspan=3, sticky="w", padx=6)
+        self.rotulo_resumo.grid(row=6, column=0, columnspan=3, sticky="w", padx=6)
         self.barra = ttk.Progressbar(frame, mode="determinate", maximum=100)
-        self.barra.grid(row=6, column=0, columnspan=3, sticky="ew", padx=6, pady=(2, 4))
-        self.log = tk.Text(frame, height=5, wrap="word")
-        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", padx=6, pady=(0, 4))
+        self.barra.grid(row=7, column=0, columnspan=3, sticky="ew", padx=6, pady=(2, 4))
+        self.log = tk.Text(frame, height=3, wrap="word")
+        self.log.grid(row=8, column=0, columnspan=3, sticky="nsew", padx=6, pady=(0, 4))
         barra_log = ttk.Scrollbar(frame, orient="vertical", command=self.log.yview)
-        barra_log.grid(row=7, column=3, sticky="ns")
+        barra_log.grid(row=8, column=3, sticky="ns")
         self.log.configure(yscrollcommand=barra_log.set)
         frame.rowconfigure(3, weight=4)
-        frame.rowconfigure(7, weight=1)
+        frame.rowconfigure(8, weight=1)
 
     def _log(self, mensagem: str):
         self.app._log(self.log, mensagem)
@@ -1196,6 +1219,61 @@ class AbaGraficos:
             raise ValueError("Selecione a tabela de dados primeiro.")
         return Plano(self.tabela_filtrada(), self.coluna_x(), self.coluna_serie(), self.colunas_painel(),
                      self.opcoes(), self.legenda, self.agregacao_var.get(), chaves_series=self.chaves_serie())
+
+    # ------------------------------------------------- índice de estabilidade
+    def tabela_do_indice(self) -> pd.DataFrame:
+        """
+        Calcula o IEP com a tabela carregada. O índice usa TODOS os buffers,
+        classes e raios da tabela (a normalização depende do conjunto); só o
+        filtro da coluna do eixo X (anos) entra no cálculo, definindo o período.
+        """
+        if self.df is None:
+            raise ValueError("Selecione a tabela de dados primeiro.")
+        df, x = self.df, self.coluna_x()
+        if self.filtros.get(x) is not None:
+            df = df[df[x].isin(list(self.filtros[x]))]
+        return calcular_iep_de_tabela_de_metricas(df)
+
+    def _gerar_indice(self):
+        """Caixa 6: calcula o índice de estabilidade e gera os gráficos dele (em segundo plano)."""
+        app = self.app
+        self.log.after(0, lambda: app._limpar_log(self.log))
+        pasta = self.saida_var.get().strip()
+        if not pasta:
+            raise ValueError("Selecione a pasta de saída dos gráficos.")
+        variaveis = [coluna for coluna, var in self.indice_vars.items() if var.get()]
+        if not variaveis:
+            raise ValueError("Marque ao menos um resultado do índice (IEP, variabilidade...).")
+        formatos, dpi = self.formatos() or ["png"], self.dpi()
+        indice = self.tabela_do_indice()
+        destino = Path(pasta) / "indice_estabilidade"
+        destino.mkdir(parents=True, exist_ok=True)
+        indice.to_csv(destino / "indice_estabilidade_IEP.csv", index=False, encoding="utf-8-sig")
+        self._log(f"Índice calculado: {len(indice)} combinações de buffer x classe x raio | anos por combinação: "
+                  f"{int(indice['n_anos'].min())} a {int(indice['n_anos'].max())} | IEP médio = {indice['IEP_u'].mean():.3f}")
+        self._log(f"Tabela do índice: {destino / 'indice_estabilidade_IEP.csv'}")
+
+        # Os filtros de buffer, raio e classe escolhem o que é desenhado (não mudam o cálculo).
+        classe = next(c for c in indice.columns if c not in ("Buffer", "Raio", "n_anos")
+                      and not str(c).startswith(("CV_", "NORM_", "V_", "IEP_")))
+        for coluna in ("Buffer", "Raio", classe):
+            if self.filtros.get(coluna) is not None and coluna in indice.columns:
+                indice = indice[indice[coluna].isin(list(self.filtros[coluna]))]
+        eixo = self.indice_x_var.get() if self.indice_x_var.get() in indice.columns else "Buffer"
+        painel = [c for c in ("Buffer", "Raio") if c != eixo and c in indice.columns and indice[c].nunique() >= 1]
+        chaves = self.chaves_serie() if classe == self.coluna_serie() else None
+        plano = Plano(indice, eixo, classe, painel, self.opcoes(), self.legenda, "Média", chaves_series=chaves)
+        total = len(plano.combos) * len(variaveis)
+        self._log(f"Gerando {total} gráfico(s) do índice: eixo X = {eixo} | linhas = classes | um gráfico por "
+                  f"{' + '.join(painel) or '(tabela inteira)'}")
+        modulo = __import__(type(app).__module__)
+        resultado = gerar_graficos(
+            plano, variaveis, str(destino), formatos, dpi, log=self._log,
+            progresso=lambda valor, maximo, msg: app._atualizar_barra_processamento(self.barra, self.rotulo_resumo, valor, maximo, msg),
+            checar_parada=lambda: modulo.checar_parada(self.stop_event))
+        resumo = f"Gráficos do índice gerados: {resultado['gerados']} de {resultado['total']} | sem dados: {resultado['sem_dados']}"
+        self._log(resumo)
+        self.log.after(0, lambda: messagebox.showinfo("Concluído", resumo + f"\n\nPasta: {destino}"))
 
     # ------------------------------------------------------ dicionário de cores
     def chaves_serie(self) -> List[str]:
