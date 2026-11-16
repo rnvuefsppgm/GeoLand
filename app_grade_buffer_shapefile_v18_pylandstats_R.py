@@ -5596,9 +5596,17 @@ class AplicacaoGradeBuffer(tk.Tk):
         self._log(self.log_reclass, f"Arquivos novos recebem a regra '{NOME_REGRA_PADRAO}'. "
                                     "Selecione arquivos e atribua outras regras se necessário.")
 
+    def _guardar_editor_reclass(self):
+        """Grava o conteúdo do editor na regra ativa (antes de trocar de regra ou executar)."""
+        try:
+            self.reclass_regras[self.reclass_regra_ativa] = self._linhas_editor_reclass()
+        except (ValueError, KeyError):
+            pass
+
     def _acao_selecionar_regra_reclass(self, _evento=None):
         nome = self.regra_ativa_reclass_var.get()
         if nome in self.reclass_regras:
+            self._guardar_editor_reclass()  # não perde edições ao trocar de regra
             self.reclass_regra_ativa = nome
             self._atualizar_editor_reclass()
 
@@ -5698,9 +5706,22 @@ class AplicacaoGradeBuffer(tk.Tk):
             messagebox.showwarning("Aviso", "Nenhuma regra válida encontrada no arquivo.")
             return
         nome = Path(caminho).stem
+        self._guardar_editor_reclass()
         self.reclass_regras[nome] = regras
         self._ativar_regra_reclass(nome)
-        messagebox.showinfo("Carregado", f"{len(regras)} regra(s) carregada(s) de '{Path(caminho).name}' como '{nome}'.")
+        # Correção: antes, a regra carregada ficava só no editor e os arquivos continuavam
+        # na regra "Padrao" (agregação MapBiomas), que era a aplicada na execução.
+        # Agora a regra carregada passa a valer para os arquivos que estavam na "Padrao".
+        n = 0
+        for arquivo in self.reclass_arquivos:
+            if arquivo["Regra"] == NOME_REGRA_PADRAO:
+                arquivo["Regra"] = nome
+                n += 1
+        self._atualizar_arquivos_reclass()
+        self._log(self.log_reclass, f"Regra '{nome}' carregada de {Path(caminho).name} ({len(regras)} linhas) "
+                                    f"e atribuída a {n} arquivo(s) que estavam na regra '{NOME_REGRA_PADRAO}'.")
+        messagebox.showinfo("Carregado", f"{len(regras)} regra(s) carregada(s) de '{Path(caminho).name}' como '{nome}'.\n"
+                                         f"A regra foi atribuída a {n} arquivo(s) que estavam na regra '{NOME_REGRA_PADRAO}'.")
 
     def _acao_salvar_txt_reclass(self):
         caminho = filedialog.asksaveasfilename(title="Salvar regras em arquivo", defaultextension=".txt",
@@ -5737,6 +5758,17 @@ class AplicacaoGradeBuffer(tk.Tk):
         arquivos = [(a["Caminho"], a["Regra"]) for a in self.reclass_arquivos]
 
         self._log(self.log_reclass, "=== RECLASSIFICAÇÃO INICIADA ===")
+        # Mostra exatamente qual regra vai para quantos arquivos (evita aplicar a regra errada sem perceber).
+        contagem: Dict[str, int] = {}
+        for _caminho, nome_regra in arquivos:
+            contagem[nome_regra] = contagem.get(nome_regra, 0) + 1
+        for nome_regra, n in contagem.items():
+            regras = self.reclass_regras.get(nome_regra) or []
+            resumo = "; ".join(f"{a:g}-{b:g}→{c:g}" if a != b else f"{a:g}→{c:g}" for a, b, c in regras[:12])
+            self._log(self.log_reclass, f"Regra '{nome_regra}' em {n} arquivo(s): {resumo}{' ...' if len(regras) > 12 else ''}")
+        if self.reclass_regra_ativa not in contagem:
+            self._log(self.log_reclass, f"AVISO: a regra do editor ('{self.reclass_regra_ativa}') não está atribuída a "
+                                        "nenhum arquivo. Use 'Atribuir regra ativa...' se ela é a que deve ser aplicada.")
         self._log(self.log_reclass, f"Arquivos: {len(arquivos)} | Tipo de dado: {self.dtype_reclass_var.get()} | "
                                     f"Não mapeados: {outros} | Intervalo: {self.intervalo_reclass_var.get()}")
         resultado = reclassificar_rasters_lote(

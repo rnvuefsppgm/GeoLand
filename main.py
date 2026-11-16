@@ -369,6 +369,13 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 conferir("Aba 5 - salvar e carregar regras em .txt",
                          janela.reclass_regras.get("regra_teste") == [(1.0, 100.0, 7.0)],
                          str(janela.reclass_regras.get("regra_teste")))
+                # Ao carregar o .txt, a regra passa a valer para os arquivos que estavam na "Padrao".
+                carregada = sum(1 for arq in janela.reclass_arquivos if arq["Regra"] == "regra_teste")
+                conferir("Aba 5 - regra carregada aplicada aos arquivos", carregada == n,
+                         "%d de %d arquivos com a regra carregada" % (carregada, n))
+                # Volta 3 arquivos para a regra "Padrao" (mistura de regras na mesma execucao).
+                janela.regra_ativa_reclass_var.set("Padrao")
+                janela._acao_selecionar_regra_reclass()
                 itens = janela.tree_arquivos_reclass.get_children()
                 janela.tree_arquivos_reclass.selection_set(itens[:3])
                 janela._acao_atribuir_selecionados_reclass()
@@ -388,7 +395,7 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                                    and sai.crs == ent.crs and sai.transform == ent.transform)
                 com_teste = sum(1 for arq in janela.reclass_arquivos if arq["Regra"] == "regra_teste")
                 conferir("Aba 5 - reclassificacao conferida pixel a pixel",
-                         len(estrutura(reclass)) == n and diferentes == 0 and meta_ok and com_teste == 3,
+                         len(estrutura(reclass)) == n and diferentes == 0 and meta_ok and com_teste == n - 3,
                          "%d rasters (%d com a regra carregada), %d pixels diferentes, subpastas replicadas" % (
                              len(estrutura(reclass)), com_teste, diferentes))
                 conferir("Aba 5 - ano lido do nome com prefixo",
