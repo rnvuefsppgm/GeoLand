@@ -884,15 +884,7 @@ class AbaGraficos:
         self.lista_metricas = ListaMarcavel(met, altura=5, ao_mudar=self._ao_mudar_metricas, largura=230)
         self.lista_metricas.grid(row=0, column=0, sticky="nsew")
 
-        # Classes (só na aba do índice): escolhe quais valores da coluna das linhas entram
-        # nos gráficos. É o mesmo filtro da caixa 3 para essa coluna; na aba 10 fica só a caixa 3.
-        self.caixa_classes = self.lista_classes = None
-        if self.MODO_INDICE:
-            self.caixa_classes = ttk.LabelFrame(esquerda, text="Classes nos gráficos (valores da coluna das Linhas)", padding=6)
-            self.caixa_classes.grid(row=2, column=0, sticky="ew", pady=(4, 0))
-            self.caixa_classes.columnconfigure(0, weight=1)
-            self.lista_classes = ListaMarcavel(self.caixa_classes, altura=4, ao_mudar=self._ao_mudar_classes, largura=230)
-            self.lista_classes.grid(row=0, column=0, sticky="ew")
+        # As classes (valores da coluna das linhas) são escolhidas na caixa 3. Filtros.
 
         # 3. Filtros
         fil = ttk.LabelFrame(esquerda, text="3. Filtros (valores de cada coluna)", padding=6)
@@ -1180,40 +1172,11 @@ class AbaGraficos:
         finally:
             self._atualizando = False
         self._mostrar_filtro()
-        self._mostrar_classes()
         self._atualizar_previa_e_resumo(filtrada)
-
-    def _mostrar_classes(self):
-        """Caixa "Classes": valores da coluna das linhas, marcados conforme o filtro dessa coluna."""
-        if self.lista_classes is None:
-            return
-        serie = self.coluna_serie()
-        valores = self._valores_dim.get(serie, []) if serie else []
-        rotulos = [texto_valor(v) for v in valores]
-        rotulos = [f"{r} - {self.legenda[r][1]}" if self.legenda.get(r, (None, None))[1] else r for r in rotulos]
-        self.caixa_classes.configure(
-            text=f"Classes nos gráficos (coluna das Linhas: {serie})" if serie
-            else "Classes nos gráficos (escolha a coluna das Linhas na caixa 1)")
-        self._atualizando = True
-        try:
-            self.lista_classes.definir(valores, rotulos, marcados=self.filtros.get(serie) if serie else None)
-        finally:
-            self._atualizando = False
-
-    def _ao_mudar_classes(self):
-        serie = self.coluna_serie()
-        if self._atualizando or self.df is None or not serie or serie not in self.filtros:
-            return
-        marcados = self.lista_classes.marcados()
-        self.filtros[serie] = None if len(marcados) == len(self._valores_dim[serie]) else set(marcados)
-        self._atualizar_dependentes()
-        self.pre_visualizar()
 
     def classes_selecionadas(self) -> list:
         """Valores da coluna das linhas que entram nos gráficos."""
         serie = self.coluna_serie()
-        if self.lista_classes is not None:
-            return self.lista_classes.marcados()
         return list(self.filtros.get(serie) or self._valores_dim.get(serie, [])) if serie else []
 
     def _atualizar_previa_e_resumo(self, filtrada: pd.DataFrame):

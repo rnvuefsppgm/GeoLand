@@ -625,8 +625,8 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                     return vistas
 
                 vistas = na_janela(filtrar_classes) if serie and len(classes) >= 2 else []
-                conferir("Aba 10 - so a caixa 3. Filtros (sem caixa Classes e sem caixa 6)",
-                         aba.caixa_classes is None and not hasattr(aba, "botao_indice")
+                conferir("Abas 10 e 11 - so a caixa 3. Filtros (sem caixa Classes; aba 10 sem caixa 6)",
+                         not hasattr(aba, "caixa_classes") and not hasattr(janela.graficos_indice, "caixa_classes") and not hasattr(aba, "botao_indice")
                          and vistas == sorted(classes[:2]),
                          "coluna %s | filtro com %s -> no grafico %s" % (serie, classes[:2], vistas))
 
@@ -642,7 +642,7 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                          "X=%s | linhas=%s | um grafico por=%s | metricas=%s" % (
                              e.x, e.serie, "+".join(e.painel), ",".join(map(str, e.metricas[:5]))))
                 resultados = ("IEP_u", "V_u", "V_comp", "V_conf", "V_conn")
-                na_janela(lambda: (ind.lista_classes.marcar(ind.lista_classes.itens()[:2]),
+                na_janela(lambda: (ind.definir_filtro(e.serie, ind._valores_dim[e.serie][:2]),
                                    ind.lista_metricas.marcar([c for c in ind.lista_metricas.itens() if c in resultados])))
                 acionar(ind.botao_gerar, "_gerar_todos", alvo=ind)
                 gerados, total, _sem = resumo_do_lote(ind)
