@@ -324,3 +324,15 @@ O pacote distribuído inclui o R, `landscapemetrics`, `terra` e `rpy2`,
 licenciados sob a GPL, além de bibliotecas Python de código aberto
 (PyLandStats, GeoPandas, Rasterio e outras). Os códigos-fonte desses
 componentes estão em https://cran.r-project.org e https://pypi.org.
+
+## Licença
+
+Copyright (C) 2026 Autores do GeoLand.
+
+O GeoLand é software livre: você pode redistribuí-lo e/ou modificá-lo sob
+os termos da **GNU General Public License versão 3** (GPL-3.0), publicada
+pela Free Software Foundation. O programa é distribuído na esperança de que
+seja útil, mas SEM NENHUMA GARANTIA, nem mesmo a garantia implícita de
+COMERCIALIZAÇÃO ou de ADEQUAÇÃO A UM PROPÓSITO ESPECÍFICO. Veja o texto
+completo da licença no arquivo [LICENSE](LICENSE) ou em
+https://www.gnu.org/licenses/gpl-3.0.html.
