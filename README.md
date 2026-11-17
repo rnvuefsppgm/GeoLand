@@ -203,8 +203,12 @@ tabela, o aplicativo lê o arquivo e cria os campos da aba sozinho.
 | Métricas (eixo Y) | colunas numéricas; um gráfico por métrica | `ca`, `np`, `enn_mn`... | `Produtividade` |
 | Filtros | valores de cada coluna de categoria | `level`, `Buffer`, `class_val`... | `Municipio`, `Cultura` |
 
-Nas tabelas do GeoLand, `Buffer` e `Raio` são criados a partir do nome
-do raster (`clip_id_<ID>_diam_<DIAM>_<ANO>`). O separador (vírgula, ponto e
+Nas tabelas do GeoLand, `Buffer` (ID), `Raio` (diâmetro) e `Ano` são
+criados a partir do nome do raster (`clip_id_<ID>_diam_<DIAM>_<ANO>`, com
+ou sem prefixo/sufixo, ex.: `Reclass_clip_id_APA_1_diam_1500_2025.tif` ou
+`clip_id_100_diam_1_ano_2024_C10_1_reclass_...tif`) e aparecem na caixa
+**3. Filtros** das abas 10 e 11, para escolher IDs, diâmetros e anos
+(se a tabela já tiver a coluna `year`, o filtro de ano usa essa coluna). O separador (vírgula, ponto e
 vírgula ou tab), a vírgula decimal e a codificação do CSV são detectados.
 Os papéis sugeridos podem ser trocados nas caixas de seleção.
 

@@ -473,6 +473,19 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
         janela = app.AplicacaoGradeBuffer()
         aba = janela.graficos
 
+        # Nome do arquivo -> filtros de Buffer (ID), Raio (diametro) e Ano, com prefixo e sufixos.
+        import geoland_graficos as gg
+        nomes = ["Reclass_clip_id_APA_1_diam_%d_%d.tif" % (d, a) for d in (500, 1000, 1500) for a in (2024, 2025)]
+        nomes += ["clip_id_APA_2_diam_%d_ano_%d_C10_1_reclass_%d_31984_EPSG32724.tif" % (d, a, a)
+                  for d in (500, 1000, 1500) for a in (2024, 2025)]
+        sintetica = pd.DataFrame({"source_file": nomes, "class_val": 3, "pland": range(len(nomes))})
+        df_nome, est_nome = gg.estruturar_tabela(sintetica)
+        filtraveis = [c for c in est_nome.dimensoes if df_nome[c].nunique() >= 2]
+        conferir("Abas 10/11 - filtros de ID, raio/diametro e ano lidos do nome do arquivo",
+                 {"Buffer", "Raio", "Ano"} <= set(filtraveis) and sorted(df_nome["Raio"].unique()) == [500, 1000, 1500]
+                 and sorted(df_nome["Ano"].unique()) == [2024, 2025] and sorted(df_nome["Buffer"].unique()) == ["APA_1", "APA_2"],
+                 "filtros: %s | Raio %s | Ano %s" % (filtraveis, sorted(df_nome["Raio"].unique()), sorted(df_nome["Ano"].unique())))
+
         def na_janela(funcao):
             """Executa `funcao` na thread da interface e devolve o resultado."""
             feito, caixa = threading.Event(), {}

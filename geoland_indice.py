@@ -54,6 +54,7 @@ NOMES_INDICE = {
 }
 
 PADRAO_RECORTE = re.compile(r"(?i)^(?:.+_)?clip_id_(?P<buffer>.+)_diam_(?P<raio>[^_]+)_(?P<ano>[^_]+)$")
+PADRAO_ID_DIAM = re.compile(r"(?i)(?:^|_)id_(?P<buffer>.+?)_(?:diam|diametro|raio|radius)_?(?P<diam>\d+(?:[.,]\d+)?)(?:_|$)")
 
 
 def cv(valores) -> float:
@@ -90,6 +91,10 @@ def identificar_paisagem_e_escala(df: pd.DataFrame, coluna_nome: str = "source_s
     nomes = df[coluna_nome].astype(str).str.replace(r"\.tiff?$", "", regex=True, case=False)
     nomes = nomes.str.replace(r"^.*[\\/]", "", regex=True)
     partes = nomes.str.extract(PADRAO_RECORTE)
+    flexivel = nomes.str.extract(PADRAO_ID_DIAM)  # aceita sufixos (ex.: _ano_2024_C10_reclass_EPSG...)
+    if partes["buffer"].notna().mean() < 0.9 and flexivel["buffer"].notna().mean() >= 0.9:
+        partes = flexivel.rename(columns={"diam": "raio"})
+        partes["raio"] = partes["raio"].str.replace(",", ".", regex=False)
     if partes["buffer"].notna().mean() >= 0.9:
         df["Buffer"], escala = partes["buffer"], partes["raio"]
     else:

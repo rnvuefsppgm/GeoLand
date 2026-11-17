@@ -47,6 +47,20 @@ from geoland_indice import NOMES_INDICE, calcular_iep_de_tabela_de_metricas
 # =============================================================================
 
 PADRAO_RECORTE = re.compile(r"(?i)^(?:.+_)?clip_id_(?P<buffer>.+)_diam_(?P<diam>[^_]+)_(?P<ano>[^_]+)$")
+# Leitura flexível do nome do arquivo (aceita prefixos e sufixos, ex.: Reclass_clip_id_APA_1_diam_500_2025,
+# clip_id_100_diam_1_ano_2024_C10_1_reclass_2024_EPSG32724): ID do buffer, diâmetro/raio e ano.
+PADRAO_ID_DIAM = re.compile(r"(?i)(?:^|_)id_(?P<buffer>.+?)_(?:diam|diametro|raio|radius)_?(?P<diam>\d+(?:[.,]\d+)?)(?P<resto>.*)$")
+PADRAO_ANO = re.compile(r"(?i)(?:^|_)(?:ano_?|year_?)?(?P<ano>(?:19|20)\d{2})(?=_|$)")
+
+
+def extrair_campos_do_nome(nomes: pd.Series) -> pd.DataFrame:
+    """Colunas buffer, diam e ano a partir do nome do arquivo (sem pasta e sem .tif).
+    O ano é o 1º ano (19xx/20xx) depois do diâmetro; nomes fora do padrão ficam vazios."""
+    base = nomes.astype(str).str.replace(r"^.*[\\/]", "", regex=True).str.replace(r"\.tiff?$", "", regex=True, case=False)
+    partes = base.str.extract(PADRAO_ID_DIAM)
+    partes["diam"] = partes["diam"].str.replace(",", ".", regex=False)
+    partes["ano"] = partes["resto"].fillna("").str.extract(PADRAO_ANO)["ano"]
+    return partes[["buffer", "diam", "ano"]]
 NOMES_X = ("year", "ano", "anos", "data", "date", "tempo", "time", "periodo")
 NOMES_SERIE = ("class_val", "class", "classe", "class_name", "classe_nome", "categoria", "grupo", "group")
 ARQUIVOS_LEGENDA = ("cores.txt", "cores.csv", "legenda.txt", "legenda.csv")
@@ -309,14 +323,12 @@ def estruturar_tabela(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
     for coluna in df.columns:
         if not (pd.api.types.is_object_dtype(df[coluna]) or pd.api.types.is_string_dtype(df[coluna])):
             continue
-        nomes = df[coluna].dropna().astype(str).str.replace(r"\.tiff?$", "", regex=True, case=False)
-        if nomes.empty or nomes.str.contains(r"[\\/]").any():
+        nomes = df[coluna].dropna()
+        if nomes.empty or extrair_campos_do_nome(nomes.head(2000))["diam"].notna().mean() < 0.9:
             continue
-        if nomes.head(2000).str.match(PADRAO_RECORTE).mean() < 0.9:
-            continue
-        partes = df[coluna].astype(str).str.replace(r"\.tiff?$", "", regex=True, case=False).str.extract(PADRAO_RECORTE)
+        partes = extrair_campos_do_nome(df[coluna].where(df[coluna].notna(), ""))
         novas = {"Buffer": partes["buffer"], "Raio": partes["diam"]}
-        if not any(n in minusculas for n in NOMES_X):
+        if partes["ano"].notna().any() and not any(n in minusculas for n in NOMES_X):
             novas["Ano"] = partes["ano"]
         for nome, valores in novas.items():
             if nome in df.columns:
