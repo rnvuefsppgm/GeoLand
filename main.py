@@ -606,11 +606,14 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                     aba.saida_var.set(str(saida / "indice"))
                     return len(aba.filtros.get(est.painel[0]) or []) if est.painel else 0
 
-                buffers = na_janela(marcar_indice)
+                na_janela(marcar_indice)
                 acionar(aba.botao_indice, "_gerar_indice")
                 pasta_indice = saida / "indice" / "indice_estabilidade"
                 csv_indice = pasta_indice / "indice_estabilidade_IEP.csv"
                 tabela_indice = pd.read_csv(csv_indice) if csv_indice.is_file() else None
+                # Um grafico por resultado e por buffer da tabela do indice (o painel da
+                # tabela de metricas pode ser Raio, quando ha um buffer so).
+                buffers = int(tabela_indice["Buffer"].nunique()) if tabela_indice is not None and "Buffer" in tabela_indice else 0
                 pngs_indice = list(pasta_indice.rglob("*.png")) if pasta_indice.is_dir() else []
                 conferir("Indice de estabilidade: tabela e graficos",
                          tabela_indice is not None and len(tabela_indice) > 0 and tabela_indice["IEP_u"].between(0, 1).all()
