@@ -4211,28 +4211,20 @@ class AplicacaoGradeBuffer(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.aba_grade = ttk.Frame(notebook)
-        self.aba_buffer = ttk.Frame(notebook)
-        self.aba_recorte = ttk.Frame(notebook)
-        self.aba_metricas = ttk.Frame(notebook)
-        self.aba_join = ttk.Frame(notebook)
-        self.aba_reproj = ttk.Frame(notebook)
-        self.aba_fundido = ttk.Frame(notebook)
-        self.aba_consol = ttk.Frame(notebook)
-        self.aba_reclass = ttk.Frame(notebook)
-        self.aba_graficos = ttk.Frame(notebook)
-
-        notebook.add(self.aba_grade, text="1. Grade de pontos")
-        notebook.add(self.aba_buffer, text="2. Buffers")
-        notebook.add(self.aba_recorte, text="3. Recortar rasters")
-        # Ordem das abas = sequência habitual de processamento.
-        notebook.add(self.aba_reproj, text="4. Reprojeção de rasters")
-        notebook.add(self.aba_reclass, text="5. Reclassificar rasters")
-        notebook.add(self.aba_metricas, text="6. Métricas e índice")
-        notebook.add(self.aba_fundido, text="7. Fundido (memória)")
-        notebook.add(self.aba_consol, text="8. Consolidar tabelas")
-        notebook.add(self.aba_join, text="9. Buffer + Métricas (SHP)")
-        notebook.add(self.aba_graficos, text="10. Gráficos")
+        # Ordem das abas = sequência habitual de processamento. Cada aba tem rolagem vertical:
+        # se a janela (ex.: maximizada numa tela baixa) for menor que o conteúdo, aparece a
+        # barra de rolagem em vez de o Tk espremer listas e botões até sumirem.
+        self.aba_grade = self._criar_aba_rolavel(notebook, "1. Grade de pontos")
+        self.aba_buffer = self._criar_aba_rolavel(notebook, "2. Buffers")
+        self.aba_recorte = self._criar_aba_rolavel(notebook, "3. Recortar rasters")
+        self.aba_reproj = self._criar_aba_rolavel(notebook, "4. Reprojeção de rasters")
+        self.aba_reclass = self._criar_aba_rolavel(notebook, "5. Reclassificar rasters")
+        self.aba_metricas = self._criar_aba_rolavel(notebook, "6. Métricas e índice")
+        self.aba_fundido = self._criar_aba_rolavel(notebook, "7. Fundido (memória)")
+        self.aba_consol = self._criar_aba_rolavel(notebook, "8. Consolidar tabelas")
+        self.aba_join = self._criar_aba_rolavel(notebook, "9. Buffer + Métricas (SHP)")
+        self.aba_graficos = self._criar_aba_rolavel(notebook, "10. Gráficos")
+        self.notebook = notebook
 
         self._montar_aba_grade()
         self._montar_aba_buffer()
@@ -4246,6 +4238,58 @@ class AplicacaoGradeBuffer(tk.Tk):
         # Aba 10 (gráficos): fica em um módulo próprio, geoland_graficos.py.
         from geoland_graficos import AbaGraficos
         self.graficos = AbaGraficos(self, self.aba_graficos)
+
+    def _criar_aba_rolavel(self, notebook, texto: str) -> ttk.Frame:
+        """Adiciona ao notebook uma aba com rolagem vertical e devolve o quadro interno.
+
+        O quadro interno ocupa toda a largura e, na altura, o maior valor entre o espaço
+        da aba e o que o conteúdo pede: com espaço sobrando, as linhas com peso crescem;
+        com falta de espaço, nada é espremido e a barra de rolagem aparece.
+        """
+        externo = ttk.Frame(notebook)
+        externo.rowconfigure(0, weight=1)
+        externo.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(externo, highlightthickness=0, borderwidth=0,
+                           background=ttk.Style().lookup("TFrame", "background") or None)
+        barra = ttk.Scrollbar(externo, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=barra.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        interno = ttk.Frame(canvas)
+        janela = canvas.create_window(0, 0, window=interno, anchor="nw")
+        estado = {"tamanho": None}
+
+        def ajustar(_evento=None):
+            largura, altura = canvas.winfo_width(), canvas.winfo_height()
+            if largura <= 1 or altura <= 1:
+                return
+            pedida = interno.winfo_reqheight()
+            alvo = (largura, max(pedida, altura))
+            if alvo != estado["tamanho"]:
+                estado["tamanho"] = alvo
+                canvas.itemconfigure(janela, width=alvo[0], height=alvo[1])
+                canvas.configure(scrollregion=(0, 0, alvo[0], alvo[1]))
+            if pedida > altura:
+                barra.grid(row=0, column=1, sticky="ns")
+            else:
+                barra.grid_remove()
+                canvas.yview_moveto(0)
+
+        def rolar(evento):
+            # Listas, tabelas e logs rolam sozinhos; a aba só rola se tiver barra visível.
+            if not barra.winfo_ismapped() or isinstance(evento.widget, (tk.Text, tk.Listbox, ttk.Treeview, tk.Canvas)) \
+                    and evento.widget is not canvas:
+                return
+            canvas.yview_scroll(int(-evento.delta / 120) or (-1 if evento.delta > 0 else 1), "units")
+
+        canvas.bind("<Configure>", ajustar)
+        # O conteúdo pode mudar de tamanho (ex.: quadros que aparecem/somem): reavalia.
+        interno.bind("<Configure>", lambda _e: interno.after_idle(ajustar))
+        externo.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", rolar))
+        externo.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+        notebook.add(externo, text=texto)
+        notebook.bind("<<NotebookTabChanged>>", lambda _e: self.after_idle(ajustar), add="+")
+        self._ajustes_abas = getattr(self, "_ajustes_abas", []) + [ajustar]
+        return interno
 
     def _adicionar_linha_arquivo(self, frame, label, text_var, comando, row):
         ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=6)

@@ -520,7 +520,7 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
         def roteiro():
             try:
                 # 1) Tabela de exemplo: leitura e campos automaticos.
-                na_janela(lambda: (janela.aba_graficos.master.select(janela.aba_graficos),
+                na_janela(lambda: (janela.notebook.select(janela.aba_graficos.master.master),
                                    aba.tabela_var.set(tabela), aba.saida_var.set(str(saida / "lote"))))
                 acionar(aba.botao_carregar, "_ler_e_estruturar")
                 est = aba.estrutura
