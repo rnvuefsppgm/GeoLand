@@ -613,44 +613,22 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                 conferir("Grafico individual salvo", len(list((saida / "individual").rglob("*.png"))) == 1,
                          "%d arquivo(s)" % len(list((saida / "individual").rglob("*.*"))))
 
-                # 5b) Indice de estabilidade: caixa propria, com os cinco resultados e eixo X = Raio.
-                def marcar_indice():
-                    for var in aba.indice_vars.values():
-                        var.set(True)
-                    aba.saida_var.set(str(saida / "indice"))
-                    return len(aba.filtros.get(est.painel[0]) or []) if est.painel else 0
-
-                na_janela(marcar_indice)
-                acionar(aba.botao_indice, "_gerar_indice")
-                pasta_indice = saida / "indice" / "indice_estabilidade"
-                csv_indice = pasta_indice / "indice_estabilidade_IEP.csv"
-                tabela_indice = pd.read_csv(csv_indice) if csv_indice.is_file() else None
-                # Um grafico por resultado e por buffer da tabela do indice (o painel da
-                # tabela de metricas pode ser Raio, quando ha um buffer so).
-                buffers = int(tabela_indice["Buffer"].nunique()) if tabela_indice is not None and "Buffer" in tabela_indice else 0
-                pngs_indice = list(pasta_indice.rglob("*.png")) if pasta_indice.is_dir() else []
-                conferir("Indice de estabilidade: tabela e graficos",
-                         tabela_indice is not None and len(tabela_indice) > 0 and tabela_indice["IEP_u"].between(0, 1).all()
-                         and buffers > 0 and len(pngs_indice) == 5 * buffers,
-                         "sem tabela" if tabela_indice is None else "%d combinacoes | IEP de %.3f a %.3f | %d graficos (5 resultados x %d buffers)" % (
-                             len(tabela_indice), tabela_indice["IEP_u"].min(), tabela_indice["IEP_u"].max(), len(pngs_indice), buffers))
-
-                # 5c) Caixa "Classes" da aba 10: marcar 2 classes deixa so elas nos graficos.
+                # 5b) Aba 10 sem a caixa Classes e sem a caixa 6; as classes ficam no filtro 3.
                 serie = aba.coluna_serie()
-                classes = na_janela(lambda: [c for c in aba.lista_classes.itens()
-                                             if c in set(aba.tabela_filtrada()[serie].dropna())]) if serie else []
+                classes = [c for c in aba._valores_dim.get(serie, [])
+                           if c in set(aba.tabela_filtrada()[serie].dropna())] if serie else []
 
-                def marcar_classes():
-                    aba.lista_classes.marcar(classes[:2])
+                def filtrar_classes():
+                    aba.definir_filtro(serie, classes[:2])
                     vistas = sorted(set(aba.tabela_filtrada()[serie].tolist()))
-                    filtro = aba.filtros.get(serie)
-                    aba.lista_classes.marcar_todos()
-                    return vistas, filtro, aba.filtros.get(serie)
+                    aba.definir_filtro(serie, None)
+                    return vistas
 
-                vistas, filtro, depois = na_janela(marcar_classes) if serie and len(classes) >= 2 else ([], None, None)
-                conferir("Aba 10 - caixa Classes escolhe as linhas dos graficos",
-                         vistas == sorted(classes[:2]) and filtro == set(classes[:2]) and depois is None,
-                         "coluna %s | %d classes | marcadas %s -> no grafico %s" % (serie, len(classes), classes[:2], vistas))
+                vistas = na_janela(filtrar_classes) if serie and len(classes) >= 2 else []
+                conferir("Aba 10 - so a caixa 3. Filtros (sem caixa Classes e sem caixa 6)",
+                         aba.caixa_classes is None and not hasattr(aba, "botao_indice")
+                         and vistas == sorted(classes[:2]),
+                         "coluna %s | filtro com %s -> no grafico %s" % (serie, classes[:2], vistas))
 
                 # 5d) Aba 11 (so o indice): a partir da tabela de metricas e da planilha do indice.
                 ind = janela.graficos_indice

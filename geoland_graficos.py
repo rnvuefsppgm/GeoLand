@@ -884,13 +884,15 @@ class AbaGraficos:
         self.lista_metricas = ListaMarcavel(met, altura=5, ao_mudar=self._ao_mudar_metricas, largura=230)
         self.lista_metricas.grid(row=0, column=0, sticky="nsew")
 
-        # Classes: escolhe quais valores da coluna das linhas entram nos gráficos
-        # (é o mesmo filtro da caixa 3 para essa coluna, só que sempre à vista).
-        self.caixa_classes = ttk.LabelFrame(esquerda, text="Classes nos gráficos (valores da coluna das Linhas)", padding=6)
-        self.caixa_classes.grid(row=2, column=0, sticky="ew", pady=(4, 0))
-        self.caixa_classes.columnconfigure(0, weight=1)
-        self.lista_classes = ListaMarcavel(self.caixa_classes, altura=4, ao_mudar=self._ao_mudar_classes, largura=230)
-        self.lista_classes.grid(row=0, column=0, sticky="ew")
+        # Classes (só na aba do índice): escolhe quais valores da coluna das linhas entram
+        # nos gráficos. É o mesmo filtro da caixa 3 para essa coluna; na aba 10 fica só a caixa 3.
+        self.caixa_classes = self.lista_classes = None
+        if self.MODO_INDICE:
+            self.caixa_classes = ttk.LabelFrame(esquerda, text="Classes nos gráficos (valores da coluna das Linhas)", padding=6)
+            self.caixa_classes.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+            self.caixa_classes.columnconfigure(0, weight=1)
+            self.lista_classes = ListaMarcavel(self.caixa_classes, altura=4, ao_mudar=self._ao_mudar_classes, largura=230)
+            self.lista_classes.grid(row=0, column=0, sticky="ew")
 
         # 3. Filtros
         fil = ttk.LabelFrame(esquerda, text="3. Filtros (valores de cada coluna)", padding=6)
@@ -964,24 +966,6 @@ class AbaGraficos:
                                        text="Selecione uma tabela: os campos são criados automaticamente\n"
                                             "e o primeiro gráfico aparece aqui.")
         self.rotulo_previa.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
-
-        # 6. Índice de Estabilidade da Paisagem: caixa própria, separada das métricas
-        # (na aba só do índice ela não aparece: lá a aba inteira é do índice).
-        self.indice_vars = {coluna: tk.BooleanVar(value=(coluna == "IEP_u")) for coluna in NOMES_INDICE}
-        self.indice_x_var = tk.StringVar(value="Raio")
-        if not self.MODO_INDICE:
-            ind = ttk.LabelFrame(frame, padding=4, text="6. Índice de Estabilidade da Paisagem (IEP) - por classe, calculado "
-                                 "com CA, PLAND, NP, LPI e ENN_MN de todos os anos da tabela")
-            ind.grid(row=4, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
-            for coluna, texto in (("IEP_u", "IEP"), ("V_u", "Variabilidade global"), ("V_comp", "Composição"),
-                                  ("V_conf", "Configuração"), ("V_conn", "Conectividade")):
-                ttk.Checkbutton(ind, text=texto, variable=self.indice_vars[coluna]).pack(side="left", padx=(2, 8))
-            ttk.Label(ind, text="Eixo X:").pack(side="left", padx=(10, 4))
-            ttk.Combobox(ind, textvariable=self.indice_x_var, state="readonly", width=8, values=["Raio", "Buffer"]).pack(side="left")
-            self.botao_indice = ttk.Button(
-                ind, text="Calcular o índice e gerar os gráficos do índice",
-                command=lambda: app._executar_thread(self.botao_indice, self.botao_parar, self.stop_event, self._gerar_indice))
-            self.botao_indice.pack(side="left", fill="x", expand=True, padx=(12, 2))
 
         # Rodapé: carregar, gerar tudo, parar, progresso e log
         rodape = ttk.Frame(frame)
@@ -1201,6 +1185,8 @@ class AbaGraficos:
 
     def _mostrar_classes(self):
         """Caixa "Classes": valores da coluna das linhas, marcados conforme o filtro dessa coluna."""
+        if self.lista_classes is None:
+            return
         serie = self.coluna_serie()
         valores = self._valores_dim.get(serie, []) if serie else []
         rotulos = [texto_valor(v) for v in valores]
@@ -1225,7 +1211,10 @@ class AbaGraficos:
 
     def classes_selecionadas(self) -> list:
         """Valores da coluna das linhas que entram nos gráficos."""
-        return self.lista_classes.marcados()
+        serie = self.coluna_serie()
+        if self.lista_classes is not None:
+            return self.lista_classes.marcados()
+        return list(self.filtros.get(serie) or self._valores_dim.get(serie, [])) if serie else []
 
     def _atualizar_previa_e_resumo(self, filtrada: pd.DataFrame):
         metricas = self.lista_metricas.marcados()
@@ -1282,61 +1271,6 @@ class AbaGraficos:
             raise ValueError("Selecione a tabela de dados primeiro.")
         return Plano(self.tabela_filtrada(), self.coluna_x(), self.coluna_serie(), self.colunas_painel(),
                      self.opcoes(), self.legenda, self.agregacao_var.get(), chaves_series=self.chaves_serie())
-
-    # ------------------------------------------------- índice de estabilidade
-    def tabela_do_indice(self) -> pd.DataFrame:
-        """
-        Calcula o IEP com a tabela carregada. O índice usa TODOS os buffers,
-        classes e raios da tabela (a normalização depende do conjunto); só o
-        filtro da coluna do eixo X (anos) entra no cálculo, definindo o período.
-        """
-        if self.df is None:
-            raise ValueError("Selecione a tabela de dados primeiro.")
-        df, x = self.df, self.coluna_x()
-        if self.filtros.get(x) is not None:
-            df = df[df[x].isin(list(self.filtros[x]))]
-        return calcular_iep_de_tabela_de_metricas(df)
-
-    def _gerar_indice(self):
-        """Caixa 6: calcula o índice de estabilidade e gera os gráficos dele (em segundo plano)."""
-        app = self.app
-        self.log.after(0, lambda: app._limpar_log(self.log))
-        pasta = self.saida_var.get().strip()
-        if not pasta:
-            raise ValueError("Selecione a pasta de saída dos gráficos.")
-        variaveis = [coluna for coluna, var in self.indice_vars.items() if var.get()]
-        if not variaveis:
-            raise ValueError("Marque ao menos um resultado do índice (IEP, variabilidade...).")
-        formatos, dpi = self.formatos() or ["png"], self.dpi()
-        indice = self.tabela_do_indice()
-        destino = Path(pasta) / "indice_estabilidade"
-        destino.mkdir(parents=True, exist_ok=True)
-        indice.to_csv(destino / "indice_estabilidade_IEP.csv", index=False, encoding="utf-8-sig")
-        self._log(f"Índice calculado: {len(indice)} combinações de buffer x classe x raio | anos por combinação: "
-                  f"{int(indice['n_anos'].min())} a {int(indice['n_anos'].max())} | IEP médio = {indice['IEP_u'].mean():.3f}")
-        self._log(f"Tabela do índice: {destino / 'indice_estabilidade_IEP.csv'}")
-
-        # Os filtros de buffer, raio e classe escolhem o que é desenhado (não mudam o cálculo).
-        classe = next(c for c in indice.columns if c not in ("Buffer", "Raio", "n_anos")
-                      and not str(c).startswith(("CV_", "NORM_", "V_", "IEP_")))
-        for coluna in ("Buffer", "Raio", classe):
-            if self.filtros.get(coluna) is not None and coluna in indice.columns:
-                indice = indice[indice[coluna].isin(list(self.filtros[coluna]))]
-        eixo = self.indice_x_var.get() if self.indice_x_var.get() in indice.columns else "Buffer"
-        painel = [c for c in ("Buffer", "Raio") if c != eixo and c in indice.columns and indice[c].nunique() >= 1]
-        chaves = self.chaves_serie() if classe == self.coluna_serie() else None
-        plano = Plano(indice, eixo, classe, painel, self.opcoes(), self.legenda, "Média", chaves_series=chaves)
-        total = len(plano.combos) * len(variaveis)
-        self._log(f"Gerando {total} gráfico(s) do índice: eixo X = {eixo} | linhas = classes | um gráfico por "
-                  f"{' + '.join(painel) or '(tabela inteira)'}")
-        modulo = __import__(type(app).__module__)
-        resultado = gerar_graficos(
-            plano, variaveis, str(destino), formatos, dpi, log=self._log,
-            progresso=lambda valor, maximo, msg: app._atualizar_barra_processamento(self.barra, self.rotulo_resumo, valor, maximo, msg),
-            checar_parada=lambda: modulo.checar_parada(self.stop_event))
-        resumo = f"Gráficos do índice gerados: {resultado['gerados']} de {resultado['total']} | sem dados: {resultado['sem_dados']}"
-        self._log(resumo)
-        self.log.after(0, lambda: messagebox.showinfo("Concluído", resumo + f"\n\nPasta: {destino}"))
 
     # ------------------------------------------------------ dicionário de cores
     def chaves_serie(self) -> List[str]:

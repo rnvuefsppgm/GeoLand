@@ -217,11 +217,10 @@ Os papéis sugeridos podem ser trocados nas caixas de seleção.
 2. Em **Estrutura**, confira o eixo X, as linhas e as colunas de "um gráfico
    para cada combinação de". Desmarcar `Buffer`, por exemplo, gera um
    gráfico por raio com a média de todos os buffers.
-3. Em **Métricas**, marque as métricas desejadas. Em **Classes nos
-   gráficos**, marque as classes (valores da coluna das linhas) que devem
-   aparecer; os nomes do dicionário de cores aparecem ao lado do código. Em
-   **Filtros**, escolha a coluna e desmarque os valores que não devem
-   entrar (buffers, anos...). O rodapé informa quantos gráficos serão gerados.
+3. Em **Métricas**, marque as métricas desejadas. Em **3. Filtros**,
+   escolha a coluna e desmarque os valores que não devem entrar (classes,
+   buffers, raios, anos...); na coluna das linhas, os nomes do dicionário
+   de cores aparecem ao lado do código. O rodapé informa quantos gráficos serão gerados.
 4. Em **Aparência**, escolha o tema (cinza do ggplot2, branco com grade ou
    clássico), a posição da legenda, os formatos (PNG, PDF, SVG), o tamanho
    em centímetros, a fonte e o DPI. Os textos aceitam `{metrica}`, `{sigla}`
@@ -239,17 +238,8 @@ seletor de cores, edição do nome da legenda, preenchimento por paleta
 (ggplot2, Viridis, Turbo, Espectral...) e os botões **Salvar .txt** e
 **Carregar .txt**. Sem dicionário, as cores são as do ggplot2.
 
-**Gráficos do índice.** A caixa "6. Índice de Estabilidade da Paisagem (IEP)"
-calcula o índice com a tabela carregada (precisa das colunas de CA, PLAND,
-NP, LPI e ENN_MN de classe) e gera os gráficos dele em
-`<pasta de saída>\indice_estabilidade`, junto com a tabela
-`indice_estabilidade_IEP.csv`. Marque os resultados (IEP, variabilidade
-global, composição, configuração, conectividade) e o eixo X: **Raio** (um
-gráfico por buffer) ou **Buffer** (um gráfico por raio); as linhas são as
-classes. O cálculo usa todos os buffers, classes e raios da tabela; o
-filtro de anos define o período, e os filtros de buffer, raio e classe só
-escolhem o que é desenhado. Para gráficos do índice com todas as opções,
-use a aba 11.
+**Gráficos do índice.** Os gráficos do Índice de Estabilidade da Paisagem
+(IEP) ficam na aba 11.
 
 A linha de cada classe é interrompida nos anos em que a classe não tem
 valor; marque **Ligar lacunas** para unir os pontos. As siglas do
