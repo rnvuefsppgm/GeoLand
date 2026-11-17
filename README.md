@@ -213,9 +213,11 @@ Os papéis sugeridos podem ser trocados nas caixas de seleção.
 2. Em **Estrutura**, confira o eixo X, as linhas e as colunas de "um gráfico
    para cada combinação de". Desmarcar `Buffer`, por exemplo, gera um
    gráfico por raio com a média de todos os buffers.
-3. Em **Métricas**, marque as métricas desejadas; em **Filtros**, escolha a
-   coluna e desmarque os valores que não devem entrar (buffers, classes,
-   anos...). O rodapé informa quantos gráficos serão gerados.
+3. Em **Métricas**, marque as métricas desejadas. Em **Classes nos
+   gráficos**, marque as classes (valores da coluna das linhas) que devem
+   aparecer; os nomes do dicionário de cores aparecem ao lado do código. Em
+   **Filtros**, escolha a coluna e desmarque os valores que não devem
+   entrar (buffers, anos...). O rodapé informa quantos gráficos serão gerados.
 4. Em **Aparência**, escolha o tema (cinza do ggplot2, branco com grade ou
    clássico), a posição da legenda, os formatos (PNG, PDF, SVG), o tamanho
    em centímetros, a fonte e o DPI. Os textos aceitam `{metrica}`, `{sigla}`
@@ -242,12 +244,32 @@ global, composição, configuração, conectividade) e o eixo X: **Raio** (um
 gráfico por buffer) ou **Buffer** (um gráfico por raio); as linhas são as
 classes. O cálculo usa todos os buffers, classes e raios da tabela; o
 filtro de anos define o período, e os filtros de buffer, raio e classe só
-escolhem o que é desenhado.
+escolhem o que é desenhado. Para gráficos do índice com todas as opções,
+use a aba 11.
 
 A linha de cada classe é interrompida nos anos em que a classe não tem
 valor; marque **Ligar lacunas** para unir os pontos. As siglas do
 landscapemetrics aparecem com o nome por extenso no eixo Y, como
 `Number of patches (NP)`.
+
+### Aba 11 — Gráficos do IEP
+
+A mesma aba de gráficos (estrutura, classes, filtros, aparência, dicionário
+de cores, pré-visualização, gráfico individual e lote), só com o Índice de
+Estabilidade da Paisagem. A tabela de entrada pode ser:
+
+- **a planilha do índice já calculado** — `indice_estabilidade_IEP_<motor>_<data>.csv`
+  da aba 6 ou `indice_estabilidade_IEP.csv` da aba 10 (reconhecida pela
+  coluna `IEP_u`), usada diretamente;
+- **a tabela geral de métricas** (nível de classe, com CA, PLAND, NP, LPI e
+  ENN_MN de vários anos): o índice é calculado ao ler e gravado como
+  `indice_estabilidade_IEP.csv` na pasta de saída ao gerar os gráficos.
+
+A estrutura sugerida é eixo X = `Raio`, linhas = classes e um gráfico por
+`Buffer`; troque para eixo X = `Buffer` para ter um gráfico por raio. Na
+caixa de métricas aparecem primeiro os cinco resultados do índice (IEP,
+variabilidade global, composição, configuração e conectividade) e depois os
+CVs de cada métrica.
 
 ## Estrutura do repositório
 

@@ -51,6 +51,7 @@ NOMES_X = ("year", "ano", "anos", "data", "date", "tempo", "time", "periodo")
 NOMES_SERIE = ("class_val", "class", "classe", "class_name", "classe_nome", "categoria", "grupo", "group")
 ARQUIVOS_LEGENDA = ("cores.txt", "cores.csv", "legenda.txt", "legenda.csv")
 SEM_VALOR = "(sem valor)"
+NA_INTEIRO_R = -2147483648  # NA_integer_ do R
 NENHUMA = "(nenhuma)"
 AGREGACOES = {"Média": "mean", "Mediana": "median", "Soma": "sum", "Mínimo": "min", "Máximo": "max"}
 MARCADORES = ("o", "^", "s", "D", "v", "P", "X", "<", ">", "p", "h", "*")
@@ -297,6 +298,12 @@ def estruturar_tabela(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
     df = df.copy()
     est = Estrutura()
     minusculas = {str(c).lower(): c for c in df.columns}
+
+    # 0) O R grava o "sem valor" de inteiros como -2147483648 (ex.: class_val nas linhas
+    #    de nível paisagem do landscapemetrics): vira ausente, para não parecer uma classe.
+    for coluna in df.columns:
+        if pd.api.types.is_integer_dtype(df[coluna]) and (df[coluna] == NA_INTEIRO_R).any():
+            df[coluna] = df[coluna].where(df[coluna] != NA_INTEIRO_R)
 
     # 1) Campos embutidos no nome do arquivo de origem.
     for coluna in df.columns:
@@ -783,6 +790,9 @@ class ListaMarcavel(ttk.Frame):
 class AbaGraficos:
     """Aba "10. Gráficos": tabela -> campos automáticos -> gráficos individuais e em lote."""
 
+    MODO_INDICE = False
+    TITULO = "Gráficos de linhas e pontos no padrão do ggplot2, a partir de qualquer tabela"
+
     def __init__(self, app, aba):
         self.app = app
         self.df: Optional[pd.DataFrame] = None
@@ -818,8 +828,7 @@ class AbaGraficos:
         self.frame = frame = ttk.Frame(aba, padding=10)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
-        ttk.Label(frame, text="Gráficos de linhas e pontos no padrão do ggplot2, a partir de qualquer tabela",
-                  font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 4))
+        ttk.Label(frame, text=self.TITULO, font=("Segoe UI", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 4))
         app._adicionar_linha_arquivo(frame, "Tabela de dados (CSV, TXT ou Parquet):", self.tabela_var,
                                      self._acao_selecionar_tabela, row=1)
         app._adicionar_linha_pasta(frame, "Pasta de saída dos gráficos:", self.saida_var,
@@ -863,9 +872,17 @@ class AbaGraficos:
         self.lista_metricas = ListaMarcavel(met, altura=5, ao_mudar=self._ao_mudar_metricas, largura=230)
         self.lista_metricas.grid(row=0, column=0, sticky="nsew")
 
+        # Classes: escolhe quais valores da coluna das linhas entram nos gráficos
+        # (é o mesmo filtro da caixa 3 para essa coluna, só que sempre à vista).
+        self.caixa_classes = ttk.LabelFrame(esquerda, text="Classes nos gráficos (valores da coluna das Linhas)", padding=6)
+        self.caixa_classes.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.caixa_classes.columnconfigure(0, weight=1)
+        self.lista_classes = ListaMarcavel(self.caixa_classes, altura=4, ao_mudar=self._ao_mudar_classes, largura=230)
+        self.lista_classes.grid(row=0, column=0, sticky="ew")
+
         # 3. Filtros
         fil = ttk.LabelFrame(esquerda, text="3. Filtros (valores de cada coluna)", padding=6)
-        fil.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        fil.grid(row=3, column=0, sticky="ew", pady=(4, 0))
         fil.columnconfigure(1, weight=1)
         ttk.Label(fil, text="Coluna:").grid(row=0, column=0, sticky="e", padx=(0, 4))
         self.combo_filtro = ttk.Combobox(fil, textvariable=self.filtro_var, state="readonly", width=30)
@@ -937,20 +954,22 @@ class AbaGraficos:
         self.rotulo_previa.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
 
         # 6. Índice de Estabilidade da Paisagem: caixa própria, separada das métricas
+        # (na aba só do índice ela não aparece: lá a aba inteira é do índice).
         self.indice_vars = {coluna: tk.BooleanVar(value=(coluna == "IEP_u")) for coluna in NOMES_INDICE}
         self.indice_x_var = tk.StringVar(value="Raio")
-        ind = ttk.LabelFrame(frame, padding=4, text="6. Índice de Estabilidade da Paisagem (IEP) - por classe, calculado "
-                             "com CA, PLAND, NP, LPI e ENN_MN de todos os anos da tabela")
-        ind.grid(row=4, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
-        for coluna, texto in (("IEP_u", "IEP"), ("V_u", "Variabilidade global"), ("V_comp", "Composição"),
-                              ("V_conf", "Configuração"), ("V_conn", "Conectividade")):
-            ttk.Checkbutton(ind, text=texto, variable=self.indice_vars[coluna]).pack(side="left", padx=(2, 8))
-        ttk.Label(ind, text="Eixo X:").pack(side="left", padx=(10, 4))
-        ttk.Combobox(ind, textvariable=self.indice_x_var, state="readonly", width=8, values=["Raio", "Buffer"]).pack(side="left")
-        self.botao_indice = ttk.Button(
-            ind, text="Calcular o índice e gerar os gráficos do índice",
-            command=lambda: app._executar_thread(self.botao_indice, self.botao_parar, self.stop_event, self._gerar_indice))
-        self.botao_indice.pack(side="left", fill="x", expand=True, padx=(12, 2))
+        if not self.MODO_INDICE:
+            ind = ttk.LabelFrame(frame, padding=4, text="6. Índice de Estabilidade da Paisagem (IEP) - por classe, calculado "
+                                 "com CA, PLAND, NP, LPI e ENN_MN de todos os anos da tabela")
+            ind.grid(row=4, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
+            for coluna, texto in (("IEP_u", "IEP"), ("V_u", "Variabilidade global"), ("V_comp", "Composição"),
+                                  ("V_conf", "Configuração"), ("V_conn", "Conectividade")):
+                ttk.Checkbutton(ind, text=texto, variable=self.indice_vars[coluna]).pack(side="left", padx=(2, 8))
+            ttk.Label(ind, text="Eixo X:").pack(side="left", padx=(10, 4))
+            ttk.Combobox(ind, textvariable=self.indice_x_var, state="readonly", width=8, values=["Raio", "Buffer"]).pack(side="left")
+            self.botao_indice = ttk.Button(
+                ind, text="Calcular o índice e gerar os gráficos do índice",
+                command=lambda: app._executar_thread(self.botao_indice, self.botao_parar, self.stop_event, self._gerar_indice))
+            self.botao_indice.pack(side="left", fill="x", expand=True, padx=(12, 2))
 
         # Rodapé: carregar, gerar tudo, parar, progresso e log
         rodape = ttk.Frame(frame)
@@ -1026,7 +1045,7 @@ class AbaGraficos:
             raise ValueError("Selecione a tabela de dados.")
         self.log.after(0, lambda: self.app._limpar_log(self.log))
         self._log(f"Lendo a tabela: {caminho}")
-        df, estrutura = estruturar_tabela(ler_tabela(caminho))
+        df, estrutura = self._estruturar(ler_tabela(caminho))
         legenda_auto = None
         if not self.legenda_var.get().strip():
             legenda_auto = next((str(Path(caminho).parent / n) for n in ARQUIVOS_LEGENDA
@@ -1045,6 +1064,9 @@ class AbaGraficos:
         pronto.wait(120)
         if erros:
             raise erros[0]
+
+    def _estruturar(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
+        return estruturar_tabela(df)
 
     def _preencher_campos(self, df: pd.DataFrame, est: Estrutura, legenda_auto: Optional[str]):
         self._atualizando = True
@@ -1162,7 +1184,36 @@ class AbaGraficos:
         finally:
             self._atualizando = False
         self._mostrar_filtro()
+        self._mostrar_classes()
         self._atualizar_previa_e_resumo(filtrada)
+
+    def _mostrar_classes(self):
+        """Caixa "Classes": valores da coluna das linhas, marcados conforme o filtro dessa coluna."""
+        serie = self.coluna_serie()
+        valores = self._valores_dim.get(serie, []) if serie else []
+        rotulos = [texto_valor(v) for v in valores]
+        rotulos = [f"{r} - {self.legenda[r][1]}" if self.legenda.get(r, (None, None))[1] else r for r in rotulos]
+        self.caixa_classes.configure(
+            text=f"Classes nos gráficos (coluna das Linhas: {serie})" if serie
+            else "Classes nos gráficos (escolha a coluna das Linhas na caixa 1)")
+        self._atualizando = True
+        try:
+            self.lista_classes.definir(valores, rotulos, marcados=self.filtros.get(serie) if serie else None)
+        finally:
+            self._atualizando = False
+
+    def _ao_mudar_classes(self):
+        serie = self.coluna_serie()
+        if self._atualizando or self.df is None or not serie or serie not in self.filtros:
+            return
+        marcados = self.lista_classes.marcados()
+        self.filtros[serie] = None if len(marcados) == len(self._valores_dim[serie]) else set(marcados)
+        self._atualizar_dependentes()
+        self.pre_visualizar()
+
+    def classes_selecionadas(self) -> list:
+        """Valores da coluna das linhas que entram nos gráficos."""
+        return self.lista_classes.marcados()
 
     def _atualizar_previa_e_resumo(self, filtrada: pd.DataFrame):
         metricas = self.lista_metricas.marcados()
@@ -1371,6 +1422,77 @@ class AbaGraficos:
         self._log("=" * 70)
         self._log(resumo)
         self.log.after(0, lambda: messagebox.showinfo("Concluído", resumo + f"\n\nPasta: {pasta}"))
+
+
+def tabela_do_iep(df: pd.DataFrame) -> Tuple[pd.DataFrame, bool]:
+    """A tabela do índice: a própria, se já tiver o IEP calculado (coluna IEP_u), ou o
+    IEP calculado a partir de uma tabela geral de métricas. Devolve (tabela, calculou)."""
+    if "IEP_u" in df.columns:
+        return df, False
+    try:
+        return calcular_iep_de_tabela_de_metricas(df), True
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("A tabela não tem o índice calculado (coluna IEP_u) e não foi possível calculá-lo a partir "
+                         f"dela: {exc}\nUse a tabela do índice ou a tabela geral de métricas (nível de classe, com "
+                         "CA, PLAND, NP, LPI e ENN_MN de vários anos).") from None
+
+
+def estruturar_tabela_iep(df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
+    """Estrutura sugerida para a tabela do índice: eixo X = Raio, linhas = classes,
+    um gráfico por Buffer e, no eixo Y, os resultados do índice (IEP primeiro)."""
+    df, est = estruturar_tabela(df)
+    minusculas = {str(c).lower(): c for c in df.columns}
+    classe = next((minusculas[n] for n in NOMES_SERIE if n in minusculas), None)
+    for coluna in ("Buffer", "Raio", classe):  # Raio e classe são categorias, mesmo sendo números
+        if coluna and coluna in df.columns and coluna not in est.dimensoes:
+            est.dimensoes.append(coluna)
+        if coluna in est.metricas:
+            est.metricas.remove(coluna)
+    resultados = [c for c in NOMES_INDICE if c in df.columns]
+    extras = [c for c in df.columns if str(c).startswith(("CV_", "NORM_CV_")) and c not in resultados]
+    est.metricas = resultados + extras + [c for c in est.metricas if c not in resultados and c not in extras]
+    est.x = "Raio" if "Raio" in df.columns else ("Buffer" if "Buffer" in df.columns else est.x)
+    est.serie = classe
+    est.painel = [c for c in ("Buffer", "Raio") if c in df.columns and c != est.x]
+    est.filtros_iniciais = {}
+    return df, est
+
+
+class AbaGraficosIndice(AbaGraficos):
+    """Aba "11. Gráficos do IEP": os mesmos campos da aba de gráficos, só com o índice.
+
+    Aceita a planilha do índice já calculado (indice_estabilidade_IEP*.csv) ou a tabela
+    geral de métricas, da qual o índice é calculado ao ler (e gravado na pasta de saída).
+    """
+
+    MODO_INDICE = True
+    TITULO = ("Gráficos do Índice de Estabilidade da Paisagem (IEP) - planilha do índice "
+              "ou tabela geral de métricas")
+
+    def __init__(self, app, aba):
+        self.iep_calculado: Optional[pd.DataFrame] = None
+        super().__init__(app, aba)
+        self.rotulo_previa.configure(
+            text="Selecione a planilha do índice (indice_estabilidade_IEP...csv)\nou a tabela geral de métricas: "
+                 "o índice é calculado e o primeiro gráfico aparece aqui.")
+
+    def _estruturar(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Estrutura]:
+        tabela, calculou = tabela_do_iep(df)
+        self.iep_calculado = tabela if calculou else None
+        if calculou:
+            self._log(f"A tabela é de métricas: índice calculado com todos os anos ({len(tabela)} combinações de "
+                      f"buffer x classe x raio; IEP médio = {tabela['IEP_u'].mean():.3f}). Ele será gravado na pasta "
+                      "de saída ao gerar os gráficos.")
+        else:
+            self._log("A tabela já traz o índice calculado (coluna IEP_u): usada diretamente.")
+        return estruturar_tabela_iep(tabela)
+
+    def _gerar_todos(self):
+        super()._gerar_todos()
+        if self.iep_calculado is not None and self.saida_var.get().strip():
+            destino = Path(self.saida_var.get().strip()) / "indice_estabilidade_IEP.csv"
+            self.iep_calculado.to_csv(destino, index=False, encoding="utf-8-sig")
+            self._log(f"Tabela do índice gravada: {destino}")
 
 
 class DialogoCores(tk.Toplevel):

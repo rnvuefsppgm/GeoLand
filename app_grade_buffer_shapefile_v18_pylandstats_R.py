@@ -4224,6 +4224,7 @@ class AplicacaoGradeBuffer(tk.Tk):
         self.aba_consol = self._criar_aba_rolavel(notebook, "8. Consolidar tabelas")
         self.aba_join = self._criar_aba_rolavel(notebook, "9. Buffer + Métricas (SHP)")
         self.aba_graficos = self._criar_aba_rolavel(notebook, "10. Gráficos")
+        self.aba_graficos_indice = self._criar_aba_rolavel(notebook, "11. Gráficos do IEP")
         self.notebook = notebook
 
         self._montar_aba_grade()
@@ -4236,8 +4237,10 @@ class AplicacaoGradeBuffer(tk.Tk):
         self._montar_aba_consolidar()
         self._montar_aba_reclass()
         # Aba 10 (gráficos): fica em um módulo próprio, geoland_graficos.py.
-        from geoland_graficos import AbaGraficos
+        # Aba 11: a mesma aba de gráficos, só com o índice de estabilidade (IEP).
+        from geoland_graficos import AbaGraficos, AbaGraficosIndice
         self.graficos = AbaGraficos(self, self.aba_graficos)
+        self.graficos_indice = AbaGraficosIndice(self, self.aba_graficos_indice)
 
     def _criar_aba_rolavel(self, notebook, texto: str) -> ttk.Frame:
         """Adiciona ao notebook uma aba com rolagem vertical e devolve o quadro interno.

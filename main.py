@@ -491,9 +491,10 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                 raise RuntimeError(caixa["e"])
             return caixa.get("r")
 
-        def acionar(botao, metodo, limite=3600):
+        def acionar(botao, metodo, limite=3600, alvo=None):
             """Clica no botao e espera o processamento (em outra thread) terminar."""
-            fim, original = threading.Event(), getattr(aba, metodo)
+            alvo = alvo or aba
+            fim, original = threading.Event(), getattr(alvo, metodo)
 
             def embrulho():
                 try:
@@ -501,7 +502,7 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                 finally:
                     fim.set()
 
-            setattr(aba, metodo, embrulho)
+            setattr(alvo, metodo, embrulho)
             try:
                 for _ in range(100):
                     if str(botao.cget("state")) != "disabled":
@@ -510,11 +511,11 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                 botao.invoke()
                 fim.wait(limite)
             finally:
-                delattr(aba, metodo)
+                delattr(alvo, metodo)
             time.sleep(1.0)
 
-        def resumo_do_lote():
-            achado = re.search(r"Gráficos gerados: (\d+) de (\d+) \| sem dados: (\d+)", aba.log.get("1.0", "end"))
+        def resumo_do_lote(alvo=None):
+            achado = re.search(r"Gráficos gerados: (\d+) de (\d+) \| sem dados: (\d+)", (alvo or aba).log.get("1.0", "end"))
             return tuple(int(v) for v in achado.groups()) if achado else (0, 0, 0)
 
         def roteiro():
@@ -620,6 +621,53 @@ def teste_graficos(tabela: str, pasta_saida: str) -> int:
                          and buffers > 0 and len(pngs_indice) == 5 * buffers,
                          "sem tabela" if tabela_indice is None else "%d combinacoes | IEP de %.3f a %.3f | %d graficos (5 resultados x %d buffers)" % (
                              len(tabela_indice), tabela_indice["IEP_u"].min(), tabela_indice["IEP_u"].max(), len(pngs_indice), buffers))
+
+                # 5c) Caixa "Classes" da aba 10: marcar 2 classes deixa so elas nos graficos.
+                serie = aba.coluna_serie()
+                classes = na_janela(lambda: [c for c in aba.lista_classes.itens()
+                                             if c in set(aba.tabela_filtrada()[serie].dropna())]) if serie else []
+
+                def marcar_classes():
+                    aba.lista_classes.marcar(classes[:2])
+                    vistas = sorted(set(aba.tabela_filtrada()[serie].tolist()))
+                    filtro = aba.filtros.get(serie)
+                    aba.lista_classes.marcar_todos()
+                    return vistas, filtro, aba.filtros.get(serie)
+
+                vistas, filtro, depois = na_janela(marcar_classes) if serie and len(classes) >= 2 else ([], None, None)
+                conferir("Aba 10 - caixa Classes escolhe as linhas dos graficos",
+                         vistas == sorted(classes[:2]) and filtro == set(classes[:2]) and depois is None,
+                         "coluna %s | %d classes | marcadas %s -> no grafico %s" % (serie, len(classes), classes[:2], vistas))
+
+                # 5d) Aba 11 (so o indice): a partir da tabela de metricas e da planilha do indice.
+                ind = janela.graficos_indice
+                na_janela(lambda: (janela.notebook.select(janela.aba_graficos_indice.master.master),
+                                   ind.tabela_var.set(tabela), ind.saida_var.set(str(saida / "iep_metricas"))))
+                acionar(ind.botao_carregar, "_ler_e_estruturar", alvo=ind)
+                e = ind.estrutura
+                conferir("Aba 11 - tabela de metricas: indice calculado e campos",
+                         ind.iep_calculado is not None and e.x == "Raio" and e.metricas[:1] == ["IEP_u"]
+                         and ind._imagem_previa is not None,
+                         "X=%s | linhas=%s | um grafico por=%s | metricas=%s" % (
+                             e.x, e.serie, "+".join(e.painel), ",".join(map(str, e.metricas[:5]))))
+                resultados = ("IEP_u", "V_u", "V_comp", "V_conf", "V_conn")
+                na_janela(lambda: (ind.lista_classes.marcar(ind.lista_classes.itens()[:2]),
+                                   ind.lista_metricas.marcar([c for c in ind.lista_metricas.itens() if c in resultados])))
+                acionar(ind.botao_gerar, "_gerar_todos", alvo=ind)
+                gerados, total, _sem = resumo_do_lote(ind)
+                csv_iep = saida / "iep_metricas" / "indice_estabilidade_IEP.csv"
+                pngs_iep = list((saida / "iep_metricas").rglob("*.png"))
+                conferir("Aba 11 - lote do indice (5 resultados, 2 classes)",
+                         gerados == total > 0 and len(pngs_iep) == gerados and csv_iep.is_file(),
+                         "%d de %d graficos | tabela do indice gravada: %s" % (gerados, total, csv_iep.is_file()))
+                if csv_iep.is_file():
+                    na_janela(lambda: (ind.tabela_var.set(str(csv_iep)), ind.saida_var.set(str(saida / "iep_planilha"))))
+                    acionar(ind.botao_carregar, "_ler_e_estruturar", alvo=ind)
+                    conferir("Aba 11 - planilha do indice usada diretamente",
+                             ind.iep_calculado is None and ind.estrutura.x == "Raio" and ind.df is not None
+                             and len(ind.df) == len(pd.read_csv(csv_iep)) and ind._imagem_previa is not None,
+                             "%d linhas | X=%s | linhas=%s" % (0 if ind.df is None else len(ind.df), ind.estrutura.x,
+                                                              ind.estrutura.serie))
 
                 # 6) Outra tabela: ponto e virgula, virgula decimal e nomes de coluna diferentes.
                 generica = saida / "tabela_generica.csv"
