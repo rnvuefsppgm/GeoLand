@@ -913,6 +913,7 @@ def salvar_array_reprojetado_utm(
     checar_parada(stop_event)
     with rasterio.open(caminho_saida, "w", **perfil) as dst:
         dst.write(destino)
+    remover_auxiliares_raster(caminho_saida)
 
     log(f"Raster salvo em UTM: {caminho_saida}")
 
@@ -2392,6 +2393,7 @@ def reprojetar_raster_arquivo(
 
         caminho_saida.parent.mkdir(parents=True, exist_ok=True)
         num_threads = max(1, int(num_threads))
+        remover_auxiliares_raster(caminho_saida)
         with rasterio.open(caminho_saida, "w", **perfil) as dst:
             for banda in range(1, src.count + 1):
                 checar_parada(stop_event)
@@ -2543,6 +2545,26 @@ def _subpasta_relativa(caminho_arquivo: str, pasta_base: Optional[str]) -> str:
 # =============================================================================
 
 # Regras padrão (nomenclatura MapBiomas): cada tupla é (Val_Min, Val_Max, Novo_Val).
+# Arquivos que ArcGIS/QGIS/GDAL criam ao lado de um raster: tabela de atributos (.vat.dbf),
+# estatísticas e histograma (.aux.xml) e pirâmides (.ovr). Se o raster é sobrescrito e eles
+# ficam, o ArcGIS continua mostrando as classes ANTIGAS (ex.: valor 1 que não existe mais).
+SUFIXOS_AUXILIARES_RASTER = (".aux.xml", ".aux", ".ovr", ".vat.dbf", ".vat.cpg")
+
+
+def remover_auxiliares_raster(caminho) -> List[str]:
+    """Apaga os arquivos auxiliares de `caminho`; devolve os que não puderam ser
+    apagados (ex.: raster aberto no ArcGIS)."""
+    presos: List[str] = []
+    for sufixo in SUFIXOS_AUXILIARES_RASTER:
+        aux = str(caminho) + sufixo
+        if os.path.exists(aux):
+            try:
+                os.remove(aux)
+            except OSError:
+                presos.append(os.path.basename(aux))
+    return presos
+
+
 REGRAS_RECLASS_PADRAO = [
     (1, 1, 1), (3, 3, 1), (4, 4, 1), (5, 5, 1),
     (6, 6, 1), (49, 49, 1), (10, 10, 1), (11, 11, 1),
@@ -2654,9 +2676,11 @@ def reclassificar_raster_arquivo(
     incluir_minimo: bool = True,
     sobrescrever: bool = True,
     stop_event: Optional[threading.Event] = None,
-) -> None:
+) -> List[str]:
     """
     Reclassifica todas as bandas de um raster e grava em GeoTIFF (LZW).
+    Apaga a tabela de atributos/estatísticas antigas da saída (.vat.dbf, .aux.xml...)
+    e devolve os auxiliares que não puderam ser apagados.
 
     Processa em faixas de linhas, para a memória não crescer com o tamanho do
     raster. Em rasters inteiros de até 16 bits usa uma tabela com o resultado
@@ -2688,6 +2712,7 @@ def reclassificar_raster_arquivo(
                                          regras, outros_val, direita, incluir_minimo)
         linhas_por_faixa = max(1, 4_000_000 // max(1, src.width * src.count))
         Path(caminho_saida).parent.mkdir(parents=True, exist_ok=True)
+        remover_auxiliares_raster(caminho_saida)
         try:
             with rasterio.open(caminho_saida, "w", **perfil) as dst:
                 for linha in range(0, src.height, linhas_por_faixa):
@@ -2713,6 +2738,7 @@ def reclassificar_raster_arquivo(
             except OSError:
                 pass
             raise
+    return remover_auxiliares_raster(caminho_saida)
 
 
 def reclassificar_rasters_lote(
@@ -2781,10 +2807,10 @@ def reclassificar_rasters_lote(
             return ("erro", None, f"regra '{nome_regra}' não encontrada ou vazia")
         try:
             saida = pasta_saida_path / _subpasta_relativa(caminho, pasta_base) / f"{prefixo}{Path(caminho).name}"
-            reclassificar_raster_arquivo(
+            presos = reclassificar_raster_arquivo(
                 caminho, regras, str(saida), dtype=dtype, outros=outros, direita=direita,
                 incluir_minimo=incluir_minimo, sobrescrever=sobrescrever, stop_event=stop_event)
-            return ("ok", saida, None)
+            return ("ok", saida, presos)
         except ProcessamentoInterrompido:
             raise
         except Exception as exc:
@@ -2792,6 +2818,7 @@ def reclassificar_rasters_lote(
 
     saidas: List[Path] = []
     erros: List[str] = []
+    avisos_aux: List[str] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futuros = {executor.submit(tarefa, item): item for item in arquivos}
         try:
@@ -2804,6 +2831,10 @@ def reclassificar_rasters_lote(
                 if status == "ok":
                     saidas.append(saida)
                     log(f"[{n}/{total}] {nome} (regra: {nome_regra}) -> OK: {os.path.relpath(saida, pasta_saida_path)}")
+                    if erro:
+                        avisos_aux.append(nome)
+                        log(f"  AVISO: não foi possível apagar a tabela de atributos antiga ({', '.join(erro)}); "
+                            "o ArcGIS pode mostrar classes antigas. Feche o raster no ArcGIS e apague esses arquivos.")
                 else:
                     erros.append(f"{nome}: {erro}")
                     log(f"[{n}/{total}] {nome} (regra: {nome_regra}) -> ERRO: {erro}")
@@ -2813,7 +2844,7 @@ def reclassificar_rasters_lote(
             for f in futuros:
                 f.cancel()
             raise
-    return {"saidas": saidas, "erros": erros, "total": total}
+    return {"saidas": saidas, "erros": erros, "total": total, "auxiliares_presos": avisos_aux}
 
 
 # =============================================================================
@@ -5581,10 +5612,14 @@ class AplicacaoGradeBuffer(tk.Tk):
         if saida:
             saida_abs = os.path.normcase(os.path.abspath(saida)) + os.sep
             rasters = [r for r in rasters if not os.path.normcase(os.path.abspath(r)).startswith(saida_abs)]
-        # Ao reescanear, cada arquivo mantém a regra que já tinha.
+        # Ao reescanear, cada arquivo mantém a regra que já tinha. Arquivos novos recebem a regra
+        # que está no editor (antes recebiam sempre a "Padrao": quem carregava o .txt ANTES de
+        # escolher a pasta tinha os arquivos reclassificados pela Padrao, que gera o valor 1).
+        self._guardar_editor_reclass()
+        regra_nova = self.reclass_regra_ativa
         anteriores = {a["Caminho"]: a["Regra"] for a in self.reclass_arquivos if a["Regra"] in self.reclass_regras}
         self.reclass_arquivos = [
-            {"Arquivo": os.path.relpath(r, pasta), "Caminho": str(r), "Regra": anteriores.get(str(r), NOME_REGRA_PADRAO)}
+            {"Arquivo": os.path.relpath(r, pasta), "Caminho": str(r), "Regra": anteriores.get(str(r), regra_nova)}
             for r in rasters
         ]
         self._atualizar_arquivos_reclass()
@@ -5593,7 +5628,7 @@ class AplicacaoGradeBuffer(tk.Tk):
             return
         n_pastas = len({str(r.parent) for r in rasters})
         self._log(self.log_reclass, f"=== ESCANEADO: {len(rasters)} arquivo(s) em {n_pastas} pasta(s) ===")
-        self._log(self.log_reclass, f"Arquivos novos recebem a regra '{NOME_REGRA_PADRAO}'. "
+        self._log(self.log_reclass, f"Arquivos novos recebem a regra do editor ('{regra_nova}'). "
                                     "Selecione arquivos e atribua outras regras se necessário.")
 
     def _guardar_editor_reclass(self):
@@ -5789,7 +5824,11 @@ class AplicacaoGradeBuffer(tk.Tk):
         )
         n_ok, n_erro = len(resultado["saidas"]), len(resultado["erros"])
         self._log(self.log_reclass, f"=== CONCLUÍDO | OK: {n_ok} | ERRO: {n_erro} ===")
-        self.log_reclass.after(0, lambda: messagebox.showinfo("Concluído", f"Reclassificação - OK: {n_ok} | Erros: {n_erro}"))
+        presos = resultado.get("auxiliares_presos") or []
+        aviso = (f"\n\nATENÇÃO: em {len(presos)} arquivo(s) a tabela de atributos antiga (.vat.dbf/.aux.xml) "
+                 "não pôde ser apagada (raster aberto no ArcGIS?). Veja o log." if presos else "")
+        self.log_reclass.after(0, lambda: messagebox.showinfo(
+            "Concluído", f"Reclassificação - OK: {n_ok} | Erros: {n_erro}{aviso}"))
 
     # -------------------------------------------------------------------------
     # Aba 7: fundido em memória (recorte + métricas, sem salvar recorte)

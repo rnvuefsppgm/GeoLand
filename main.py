@@ -379,7 +379,16 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                 itens = janela.tree_arquivos_reclass.get_children()
                 janela.tree_arquivos_reclass.selection_set(itens[:3])
                 janela._acao_atribuir_selecionados_reclass()
+                # Tabela de atributos antiga do ArcGIS ao lado da saida (de uma execucao anterior):
+                # tem de ser apagada, senao o ArcGIS mostra as classes antigas.
+                rel0 = Path(janela.reclass_arquivos[0]["Arquivo"])
+                velhos = [reclass / rel0.parent / ("Reclass_" + rel0.name + s) for s in (".vat.dbf", ".aux.xml")]
+                for v in velhos:
+                    v.parent.mkdir(parents=True, exist_ok=True)
+                    v.write_text("antigo")
                 acionar(janela.botao_reclass, "_processar_reclass")
+                conferir("Aba 5 - tabela de atributos antiga (.vat.dbf/.aux.xml) apagada",
+                         not any(v.exists() for v in velhos), ", ".join(v.name for v in velhos if v.exists()))
                 # Conferencia independente, pixel a pixel (na entrada, 0 = sem dado).
                 esperado = {"regra_teste": np.full(256, 255, dtype="uint8"), "Padrao": np.full(256, 255, dtype="uint8")}
                 esperado["regra_teste"][1:101] = 7
@@ -398,6 +407,13 @@ def teste_gui(pasta_rasters: str, pasta_saida: str, por_pasta: int = 3) -> int:
                          len(estrutura(reclass)) == n and diferentes == 0 and meta_ok and com_teste == n - 3,
                          "%d rasters (%d com a regra carregada), %d pixels diferentes, subpastas replicadas" % (
                              len(estrutura(reclass)), com_teste, diferentes))
+                # Carregar o .txt ANTES de escolher a pasta: os arquivos recebem a regra do editor.
+                janela.reclass_arquivos = []
+                janela._acao_carregar_txt_reclass()
+                janela._acao_selecionar_pasta_entrada_reclass()
+                antes = sum(1 for arq in janela.reclass_arquivos if arq["Regra"] == "regra_teste")
+                conferir("Aba 5 - .txt carregado antes da pasta vale para os arquivos", antes == n,
+                         "%d de %d arquivos com a regra carregada" % (antes, n))
                 conferir("Aba 5 - ano lido do nome com prefixo",
                          app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif") == "1985",
                          app.extrair_ano_de_recorte("Reclass_clip_id_APA_10_diam_2000_1985.tif"))
